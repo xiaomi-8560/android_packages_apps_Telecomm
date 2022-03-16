@@ -48,6 +48,7 @@ import android.os.RemoteException;
 import android.os.Trace;
 import android.os.UserHandle;
 import android.os.UserManager;
+import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.provider.Settings;
 import android.telecom.CallAudioState;
@@ -106,6 +107,11 @@ public class InCallController extends CallsManagerListenerBase implements
             UUID.fromString("0c2adf96-353a-433c-afe9-1e5564f304f9");
     public static final String SET_IN_CALL_ADAPTER_ERROR_MSG =
             "Exception thrown while setting the in-call adapter.";
+
+    private static final VibrationEffect CALL_CONNECT_EFFECT =
+        VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK);
+    private static final VibrationEffect CALL_DISCONNECT_EFFECT =
+        VibrationEffect.createPredefined(VibrationEffect.EFFECT_DOUBLE_CLICK);
 
     @VisibleForTesting
     public void setAnomalyReporterAdapter(AnomalyReporterAdapter mAnomalyReporterAdapter){
@@ -1302,6 +1308,8 @@ public class InCallController extends CallsManagerListenerBase implements
     private ArraySet<String> mAllCarrierPrivilegedApps = new ArraySet<>();
     private ArraySet<String> mActiveCarrierPrivilegedApps = new ArraySet<>();
 
+    private final Vibrator mVibrator;
+
     public InCallController(Context context, TelecomSystem.SyncRoot lock, CallsManager callsManager,
             SystemStateHelper systemStateHelper, DefaultDialerCache defaultDialerCache,
             Timeouts.Adapter timeoutsAdapter, EmergencyCallHelper emergencyCallHelper,
@@ -1319,6 +1327,7 @@ public class InCallController extends CallsManagerListenerBase implements
         mContext = context;
         mAppOpsManager = context.getSystemService(AppOpsManager.class);
         mSensorPrivacyManager = context.getSystemService(SensorPrivacyManager.class);
+        mVibrator = context.getSystemService(Vibrator.class);
         mLock = lock;
         mCallsManager = callsManager;
         mSystemStateHelper = systemStateHelper;
@@ -1668,25 +1677,16 @@ public class InCallController extends CallsManagerListenerBase implements
         Log.i(this, "onCallStateChanged: Call state changed for TC@%s: %s -> %s", call.getId(),
                 CallState.toString(oldState), CallState.toString(newState));
         maybeTrackMicrophoneUse(isMuted());
-        boolean vibrateOnConnect = Settings.System.getIntForUser(mContext.getContentResolver(),
-            Settings.System.VIBRATE_ON_CONNECT, 0, UserHandle.USER_CURRENT) == 1;
-        boolean vibrateOnDisconnect = Settings.System.getIntForUser(mContext.getContentResolver(),
-            Settings.System.VIBRATE_ON_DISCONNECT, 0, UserHandle.USER_CURRENT) == 1;
-
-        if (oldState == CallState.DIALING && newState == CallState.ACTIVE && vibrateOnConnect) {
-            vibrate(100, 200, 0);
-        } else if (oldState == CallState.ACTIVE && newState == CallState.DISCONNECTED
-                && vibrateOnDisconnect) {
-            vibrate(100, 200, 0);
+        final boolean vibrate = Settings.System.getIntForUser(
+            mContext.getContentResolver(),
+            Settings.System.INCALL_FEEDBACK_VIBRATE,
+            0, UserHandle.USER_CURRENT) == 1;
+        if (oldState == CallState.DIALING && newState == CallState.ACTIVE && vibrate) {
+            vibrate(CALL_CONNECT_EFFECT);
+        } else if (oldState == CallState.ACTIVE && newState == CallState.DISCONNECTED && vibrate) {
+            vibrate(CALL_DISCONNECT_EFFECT);
         }
         updateCall(call);
-    }
-
-    public void vibrate(int v1, int p1, int v2) {
-        long[] pattern = new long[] {
-            0, v1, p1, v2
-        };
-        ((Vibrator) mContext.getSystemService(Context.VIBRATOR_SERVICE)).vibrate(pattern, -1);
     }
 
     @Override
@@ -3349,5 +3349,11 @@ public class InCallController extends CallsManagerListenerBase implements
             }
         }
         return false;
+    }
+
+    public void vibrate(VibrationEffect effect) {
+        if (mVibrator.hasVibrator()) {
+            mVibrator.vibrate(effect);
+        }
     }
 }
