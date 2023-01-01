@@ -23,6 +23,7 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
@@ -72,6 +73,7 @@ import android.widget.Toast;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telecom.IVideoProvider;
 import com.android.internal.util.Preconditions;
+import com.android.server.telecom.flags.FeatureFlags;
 import com.android.server.telecom.stats.CallFailureCause;
 import com.android.server.telecom.stats.CallStateChangedAtomWriter;
 import com.android.server.telecom.ui.ToastFactory;
@@ -335,6 +337,7 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
                 }
             };
 
+    private final boolean mIsModifyStatePermissionGranted;
     /**
      * One of CALL_DIRECTION_INCOMING, CALL_DIRECTION_OUTGOING, or CALL_DIRECTION_UNKNOWN
      */
@@ -799,6 +802,8 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
      */
     private CompletableFuture<Boolean> mDisconnectFuture;
 
+    private FeatureFlags mFlags;
+
     /**
      * Persists the specified parameters and initializes the new instance.
      * @param context The context.
@@ -830,11 +835,12 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
             boolean shouldAttachToExistingConnection,
             boolean isConference,
             ClockProxy clockProxy,
-            ToastFactory toastFactory) {
+            ToastFactory toastFactory,
+            FeatureFlags featureFlags) {
         this(callId, context, callsManager, lock, repository, phoneNumberUtilsAdapter,
                handle, null, gatewayInfo, connectionManagerPhoneAccountHandle,
                targetPhoneAccountHandle, callDirection, shouldAttachToExistingConnection,
-               isConference, clockProxy, toastFactory);
+               isConference, clockProxy, toastFactory, featureFlags);
 
     }
 
@@ -854,8 +860,10 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
             boolean shouldAttachToExistingConnection,
             boolean isConference,
             ClockProxy clockProxy,
-            ToastFactory toastFactory) {
+            ToastFactory toastFactory,
+            FeatureFlags featureFlags) {
 
+        mFlags = featureFlags;
         mId = callId;
         mConnectionId = callId;
         mState = (isConference && callDirection != CALL_DIRECTION_INCOMING &&
@@ -886,6 +894,8 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
         mStartRingTime = 0;
 
         mCallStateChangedAtomWriter.setExistingCallCount(callsManager.getCalls().size());
+        mIsModifyStatePermissionGranted =
+                isModifyPhoneStatePermissionGranted(getDelegatePhoneAccountHandle());
     }
 
     /**
@@ -905,6 +915,7 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
      * connection, regardless of whether it's incoming or outgoing.
      * @param connectTimeMillis The connection time of the call.
      * @param clockProxy
+     * @param featureFlags The telecom feature flags.
      */
     Call(
             String callId,
@@ -923,11 +934,13 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
             long connectTimeMillis,
             long connectElapsedTimeMillis,
             ClockProxy clockProxy,
-            ToastFactory toastFactory) {
+            ToastFactory toastFactory,
+            FeatureFlags featureFlags) {
         this(callId, context, callsManager, lock, repository,
                 phoneNumberUtilsAdapter, handle, gatewayInfo,
                 connectionManagerPhoneAccountHandle, targetPhoneAccountHandle, callDirection,
-                shouldAttachToExistingConnection, isConference, clockProxy, toastFactory);
+                shouldAttachToExistingConnection, isConference, clockProxy, toastFactory,
+                featureFlags);
 
         mConnectTimeMillis = connectTimeMillis;
         mConnectElapsedTimeMillis = connectElapsedTimeMillis;
@@ -1780,8 +1793,12 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
                     accountHandle.getComponentName().getPackageName(),
                     mContext.getPackageManager());
             // Set the associated user for the call for MT calls based on the target phone account.
-            if (isIncoming() && !accountHandle.getUserHandle().equals(mAssociatedUser)) {
-                setAssociatedUser(accountHandle.getUserHandle());
+            UserHandle associatedUser = UserUtil.getAssociatedUserForCall(
+                    mFlags.workProfileAssociatedUser(),
+                    mCallsManager.getPhoneAccountRegistrar(), mCallsManager.getCurrentUserHandle(),
+                    accountHandle);
+            if (isIncoming() && !associatedUser.equals(mAssociatedUser)) {
+                setAssociatedUser(associatedUser);
             }
         }
     }
@@ -3149,6 +3166,12 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
                     Connection.EXTRA_REMOTE_PHONE_ACCOUNT_HANDLE));
         }
 
+        if (mExtras.containsKey(TelecomManager.EXTRA_DO_NOT_LOG_CALL)) {
+            if (source != SOURCE_CONNECTION_SERVICE || !mIsModifyStatePermissionGranted) {
+                mExtras.remove(TelecomManager.EXTRA_DO_NOT_LOG_CALL);
+            }
+        }
+
         // If the change originated from an InCallService, notify the connection service.
         if (source == SOURCE_INCALL_SERVICE) {
             Log.addEvent(this, LogUtils.Events.ICS_EXTRAS_CHANGED);
@@ -3161,6 +3184,15 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
                         "putExtras failed due to null CS callId=%s", getId());
             }
         }
+    }
+
+    private boolean isModifyPhoneStatePermissionGranted(PhoneAccountHandle phoneAccountHandle) {
+        if (phoneAccountHandle == null) {
+            return false;
+        }
+        String packageName = phoneAccountHandle.getComponentName().getPackageName();
+        return PackageManager.PERMISSION_GRANTED == mContext.getPackageManager().checkPermission(
+                android.Manifest.permission.MODIFY_PHONE_STATE, packageName);
     }
 
     /**
@@ -4144,7 +4176,7 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
      * @param associatedUser
      */
     public void setAssociatedUser(UserHandle associatedUser) {
-        Log.i(this, "Setting associated user for call");
+        Log.i(this, "Setting associated user for call: %s", associatedUser);
         Preconditions.checkNotNull(associatedUser);
         mAssociatedUser = associatedUser;
     }
