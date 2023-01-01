@@ -630,24 +630,28 @@ public class CallsManager extends Call.ListenerBase
 
         mDtmfLocalTonePlayer =
                 new DtmfLocalTonePlayer(new DtmfLocalTonePlayer.ToneGeneratorProxy());
-        CallAudioRouteStateMachine callAudioRouteStateMachine =
-                callAudioRouteStateMachineFactory.create(
-                        context,
-                        this,
-                        bluetoothManager,
-                        wiredHeadsetManager,
-                        statusBarNotifier,
-                        audioServiceFactory,
-                        CallAudioRouteStateMachine.EARPIECE_AUTO_DETECT,
-                        asyncCallAudioTaskExecutor,
-                        communicationDeviceTracker,
-                        featureFlags
-                );
-        callAudioRouteStateMachine.initialize();
+        CallAudioRouteAdapter callAudioRouteAdapter;
+        if (!featureFlags.useRefactoredAudioRouteSwitching()) {
+            callAudioRouteAdapter = callAudioRouteStateMachineFactory.create(
+                    context,
+                    this,
+                    bluetoothManager,
+                    wiredHeadsetManager,
+                    statusBarNotifier,
+                    audioServiceFactory,
+                    CallAudioRouteStateMachine.EARPIECE_AUTO_DETECT,
+                    asyncCallAudioTaskExecutor,
+                    communicationDeviceTracker,
+                    featureFlags
+            );
+        } else {
+            callAudioRouteAdapter = new CallAudioRouteController();
+        }
+        callAudioRouteAdapter.initialize();
 
         CallAudioRoutePeripheralAdapter callAudioRoutePeripheralAdapter =
                 new CallAudioRoutePeripheralAdapter(
-                        callAudioRouteStateMachine,
+                        callAudioRouteAdapter,
                         bluetoothManager,
                         wiredHeadsetManager,
                         mDockManager,
@@ -678,9 +682,10 @@ public class CallsManager extends Call.ListenerBase
                 accessibilityManagerAdapter, featureFlags);
         mCallRecordingTonePlayer = new CallRecordingTonePlayer(mContext, audioManager,
                 mTimeoutsAdapter, mLock);
-        mCallAudioManager = new CallAudioManager(callAudioRouteStateMachine,
+        mCallAudioManager = new CallAudioManager(callAudioRouteAdapter,
                 this, callAudioModeStateMachineFactory.create(systemStateHelper,
-                (AudioManager) mContext.getSystemService(Context.AUDIO_SERVICE), featureFlags),
+                (AudioManager) mContext.getSystemService(Context.AUDIO_SERVICE),
+                featureFlags, communicationDeviceTracker),
                 playerFactory, mRinger, new RingbackPlayer(playerFactory),
                 bluetoothStateReceiver, mDtmfLocalTonePlayer, featureFlags);
 
@@ -787,6 +792,10 @@ public class CallsManager extends Call.ListenerBase
         call.setPostCallPackageName(getRoleManagerAdapter().getDefaultCallScreeningApp(
                 call.getAssociatedUser()));
 
+        if (!mFeatureFlags.fixAudioFlickerForOutgoingCalls()) {
+            setCallState(call, callState, "successful outgoing call");
+        }
+
         if (!mCalls.contains(call)) {
             // Call was not added previously in startOutgoingCall due to it being a potential MMI
             // code, so add it now.
@@ -798,11 +807,16 @@ public class CallsManager extends Call.ListenerBase
             listener.onConnectionServiceChanged(call, null, call.getConnectionService());
         }
 
-        // Allow the ConnectionService to start the call in the active state. This case is helpful
-        // for conference calls or meetings that can skip the dialing stage.
-        if (callState == CallState.ACTIVE) {
-            setCallState(call, callState, "skipping the dialing state and setting active");
-        } else {
+        if (mFeatureFlags.fixAudioFlickerForOutgoingCalls()) {
+            // Allow the ConnectionService to start the call in the active state. This case is
+            // helpful for conference calls or meetings that can skip the dialing stage.
+            if (callState == CallState.ACTIVE) {
+                setCallState(call, callState, "skipping the dialing state and setting active");
+            } else {
+                markCallAsDialing(call);
+            }
+        }
+        else{
             markCallAsDialing(call);
         }
     }
@@ -3036,6 +3050,10 @@ public class CallsManager extends Call.ListenerBase
             // from the client via a transaction before answering.
             call.answer(videoState);
         } else {
+            if (!mFeatureFlags.genAnomReportOnFocusTimeout()) {
+                Call activeCall = (Call) mConnectionSvrFocusMgr.getCurrentFocusCall();
+                Log.d(this, "answerCall: Incoming call = %s Ongoing call %s", call, activeCall);
+            }
             // Hold or disconnect the active call and request call focus for the incoming call.
             Bundle bundle = new Bundle();
             bundle.putLong(TelecomManager.EXTRA_CALL_ANSWERED_TIME_MILLIS,
@@ -5788,7 +5806,7 @@ public class CallsManager extends Call.ListenerBase
         mCallAudioManager.getCallAudioModeStateMachine().getHandler().post(() -> {
             mainHandlerLatch.countDown();
         });
-        mCallAudioManager.getCallAudioRouteStateMachine().getHandler().post(() -> {
+        mCallAudioManager.getCallAudioRouteAdapter().getAdapterHandler().post(() -> {
             mainHandlerLatch.countDown();
         });
 

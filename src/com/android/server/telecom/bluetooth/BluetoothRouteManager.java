@@ -638,14 +638,22 @@ public class BluetoothRouteManager extends StateMachine {
         if (deviceType == BluetoothDeviceManager.DEVICE_TYPE_LE_AUDIO) {
             mLeAudioActiveDeviceCache = device;
             if (device == null) {
-                mCommunicationDeviceTracker.clearCommunicationDevice(
-                        AudioDeviceInfo.TYPE_BLE_HEADSET);
+                if (mFeatureFlags.callAudioCommunicationDeviceRefactor()) {
+                    mCommunicationDeviceTracker.clearCommunicationDevice(
+                            AudioDeviceInfo.TYPE_BLE_HEADSET);
+                } else {
+                    mDeviceManager.clearLeAudioOrSpeakerCommunicationDevice();
+                }
             }
         } else if (deviceType == BluetoothDeviceManager.DEVICE_TYPE_HEARING_AID) {
             mHearingAidActiveDeviceCache = device;
             if (device == null) {
-                mCommunicationDeviceTracker.clearCommunicationDevice(
-                        AudioDeviceInfo.TYPE_HEARING_AID);
+                if (mFeatureFlags.callAudioCommunicationDeviceRefactor()) {
+                    mCommunicationDeviceTracker.clearCommunicationDevice(
+                            AudioDeviceInfo.TYPE_HEARING_AID);
+                } else {
+                    mDeviceManager.clearHearingAidOrSpeakerCommunicationDevice();
+                }
             }
         } else if (deviceType == BluetoothDeviceManager.DEVICE_TYPE_HEADSET) {
             mHfpActiveDeviceCache = device;
@@ -859,9 +867,13 @@ public class BluetoothRouteManager extends StateMachine {
             }
         }
 
+        boolean isHearingAidSetForCommunication =
+                mFeatureFlags.callAudioCommunicationDeviceRefactor()
+                ? mCommunicationDeviceTracker.isAudioDeviceSetForType(
+                        AudioDeviceInfo.TYPE_HEARING_AID)
+                : mDeviceManager.isHearingAidSetAsCommunicationDevice();
         if (bluetoothHearingAid != null) {
-            if (mCommunicationDeviceTracker.isAudioDeviceSetForType(
-                    AudioDeviceInfo.TYPE_HEARING_AID)) {
+            if (isHearingAidSetForCommunication) {
                 for (BluetoothDevice device : bluetoothAdapter.getActiveDevices(
                         BluetoothProfile.HEARING_AID)) {
                     if (device != null) {
@@ -873,9 +885,13 @@ public class BluetoothRouteManager extends StateMachine {
             }
         }
 
+        boolean isLeAudioSetForCommunication =
+                mFeatureFlags.callAudioCommunicationDeviceRefactor()
+                        ? mCommunicationDeviceTracker.isAudioDeviceSetForType(
+                        AudioDeviceInfo.TYPE_BLE_HEADSET)
+                        : mDeviceManager.isLeAudioCommunicationDevice();
         if (bluetoothLeAudio != null) {
-            if (mCommunicationDeviceTracker.isAudioDeviceSetForType(
-                    AudioDeviceInfo.TYPE_BLE_HEADSET)) {
+            if (isLeAudioSetForCommunication) {
                 for (BluetoothDevice device : bluetoothAdapter.getActiveDevices(
                         BluetoothProfile.LE_AUDIO)) {
                     if (device != null) {

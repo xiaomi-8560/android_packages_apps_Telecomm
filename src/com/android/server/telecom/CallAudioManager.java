@@ -27,7 +27,6 @@ import android.provider.Settings.SettingNotFoundException;
 import android.os.UserHandle;
 import android.telecom.CallAudioState;
 import android.telecom.Log;
-import android.telecom.PhoneAccount;
 import android.telecom.VideoProfile;
 import android.util.SparseArray;
 
@@ -59,7 +58,7 @@ public class CallAudioManager extends CallsManagerListenerBase {
     private final Set<Call> mCalls;
     private final SparseArray<LinkedHashSet<Call>> mCallStateToCalls;
 
-    private final CallAudioRouteStateMachine mCallAudioRouteStateMachine;
+    private final CallAudioRouteAdapter mCallAudioRouteAdapter;
     private final CallAudioModeStateMachine mCallAudioModeStateMachine;
     private final BluetoothStateReceiver mBluetoothStateReceiver;
     private final CallsManager mCallsManager;
@@ -79,7 +78,7 @@ public class CallAudioManager extends CallsManagerListenerBase {
     private boolean mIsSilenced = false;
     private boolean mIsCrsSupportedFromAudioHal = false;
 
-    public CallAudioManager(CallAudioRouteStateMachine callAudioRouteStateMachine,
+    public CallAudioManager(CallAudioRouteAdapter callAudioRouteAdapter,
             CallsManager callsManager,
             CallAudioModeStateMachine callAudioModeStateMachine,
             InCallTonePlayer.Factory playerFactory,
@@ -105,7 +104,7 @@ public class CallAudioManager extends CallsManagerListenerBase {
             put(CallState.AUDIO_PROCESSING, mAudioProcessingCalls);
         }};
 
-        mCallAudioRouteStateMachine = callAudioRouteStateMachine;
+        mCallAudioRouteAdapter = callAudioRouteAdapter;
         mCallAudioModeStateMachine = callAudioModeStateMachine;
         mCallsManager = callsManager;
         mPlayerFactory = playerFactory;
@@ -118,7 +117,7 @@ public class CallAudioManager extends CallsManagerListenerBase {
 
         mPlayerFactory.setCallAudioManager(this);
         mCallAudioModeStateMachine.setCallAudioManager(this);
-        mCallAudioRouteStateMachine.setCallAudioManager(this);
+        mCallAudioRouteAdapter.setCallAudioManager(this);
     }
 
     @Override
@@ -272,7 +271,7 @@ public class CallAudioManager extends CallsManagerListenerBase {
                 // When pulling a video call, automatically enable the speakerphone.
                 Log.d(LOG_TAG, "Switching to speaker because external video call %s was pulled." +
                         call.getId());
-                mCallAudioRouteStateMachine.sendMessageWithSessionInfo(
+                mCallAudioRouteAdapter.sendMessageWithSessionInfo(
                         CallAudioRouteStateMachine.SWITCH_SPEAKER);
             }
         }
@@ -424,7 +423,7 @@ public class CallAudioManager extends CallsManagerListenerBase {
     @Override
     public void onConnectionServiceChanged(Call call, ConnectionServiceWrapper oldCs,
             ConnectionServiceWrapper newCs) {
-        mCallAudioRouteStateMachine.sendMessageWithSessionInfo(
+        mCallAudioRouteAdapter.sendMessageWithSessionInfo(
                 CallAudioRouteStateMachine.UPDATE_SYSTEM_AUDIO_ROUTE);
     }
 
@@ -442,13 +441,13 @@ public class CallAudioManager extends CallsManagerListenerBase {
             Log.d(LOG_TAG, "Switching to speaker because call %s transitioned video state from %s" +
                     " to %s", call.getId(), VideoProfile.videoStateToString(previousVideoState),
                     VideoProfile.videoStateToString(newVideoState));
-            mCallAudioRouteStateMachine.sendMessageWithSessionInfo(
+            mCallAudioRouteAdapter.sendMessageWithSessionInfo(
                     CallAudioRouteStateMachine.SWITCH_SPEAKER);
         }
     }
 
     public CallAudioState getCallAudioState() {
-        return mCallAudioRouteStateMachine.getCurrentCallAudioState();
+        return mCallAudioRouteAdapter.getCurrentCallAudioState();
     }
 
     public Call getPossiblyHeldForegroundCall() {
@@ -469,7 +468,7 @@ public class CallAudioManager extends CallsManagerListenerBase {
             Log.v(this, "ignoring toggleMute for emergency call");
             return;
         }
-        mCallAudioRouteStateMachine.sendMessageWithSessionInfo(
+        mCallAudioRouteAdapter.sendMessageWithSessionInfo(
                 CallAudioRouteStateMachine.TOGGLE_MUTE);
     }
 
@@ -489,7 +488,7 @@ public class CallAudioManager extends CallsManagerListenerBase {
             Log.v(this, "ignoring mute for emergency call");
         }
 
-        mCallAudioRouteStateMachine.sendMessageWithSessionInfo(shouldMute
+        mCallAudioRouteAdapter.sendMessageWithSessionInfo(shouldMute
                 ? CallAudioRouteStateMachine.MUTE_ON : CallAudioRouteStateMachine.MUTE_OFF);
     }
 
@@ -505,23 +504,23 @@ public class CallAudioManager extends CallsManagerListenerBase {
         Log.v(this, "setAudioRoute, route: %s", CallAudioState.audioRouteToString(route));
         switch (route) {
             case CallAudioState.ROUTE_BLUETOOTH:
-                mCallAudioRouteStateMachine.sendMessageWithSessionInfo(
+                mCallAudioRouteAdapter.sendMessageWithSessionInfo(
                         CallAudioRouteStateMachine.USER_SWITCH_BLUETOOTH, 0, bluetoothAddress);
                 return;
             case CallAudioState.ROUTE_SPEAKER:
-                mCallAudioRouteStateMachine.sendMessageWithSessionInfo(
+                mCallAudioRouteAdapter.sendMessageWithSessionInfo(
                         CallAudioRouteStateMachine.USER_SWITCH_SPEAKER);
                 return;
             case CallAudioState.ROUTE_WIRED_HEADSET:
-                mCallAudioRouteStateMachine.sendMessageWithSessionInfo(
+                mCallAudioRouteAdapter.sendMessageWithSessionInfo(
                         CallAudioRouteStateMachine.USER_SWITCH_HEADSET);
                 return;
             case CallAudioState.ROUTE_EARPIECE:
-                mCallAudioRouteStateMachine.sendMessageWithSessionInfo(
+                mCallAudioRouteAdapter.sendMessageWithSessionInfo(
                         CallAudioRouteStateMachine.USER_SWITCH_EARPIECE);
                 return;
             case CallAudioState.ROUTE_WIRED_OR_EARPIECE:
-                mCallAudioRouteStateMachine.sendMessageWithSessionInfo(
+                mCallAudioRouteAdapter.sendMessageWithSessionInfo(
                         CallAudioRouteStateMachine.USER_SWITCH_BASELINE_ROUTE,
                         CallAudioRouteStateMachine.NO_INCLUDE_BLUETOOTH_IN_BASELINE);
                 return;
@@ -536,7 +535,7 @@ public class CallAudioManager extends CallsManagerListenerBase {
      */
     void switchBaseline() {
         Log.i(this, "switchBaseline");
-        mCallAudioRouteStateMachine.sendMessageWithSessionInfo(
+        mCallAudioRouteAdapter.sendMessageWithSessionInfo(
                 CallAudioRouteStateMachine.USER_SWITCH_BASELINE_ROUTE,
                 CallAudioRouteStateMachine.INCLUDE_BLUETOOTH_IN_BASELINE);
     }
@@ -588,7 +587,7 @@ public class CallAudioManager extends CallsManagerListenerBase {
         synchronized (mCallsManager.getLock()) {
             Call localForegroundCall = mForegroundCall;
             boolean result = mRinger.startRinging(localForegroundCall,
-                    mCallAudioRouteStateMachine.isHfpDeviceAvailable());
+                    mCallAudioRouteAdapter.isHfpDeviceAvailable());
             if (result) {
                 localForegroundCall.setStartRingTime();
             }
@@ -600,7 +599,7 @@ public class CallAudioManager extends CallsManagerListenerBase {
         Log.i(this, "Start playing CRS audio.");
         synchronized (mCallsManager.getLock()) {
             return mRinger.startPlayingCrs(mForegroundCall,
-                    mCallAudioRouteStateMachine.isHfpDeviceAvailable());
+                    mCallAudioRouteAdapter.isHfpDeviceAvailable());
         }
     }
 
@@ -640,7 +639,7 @@ public class CallAudioManager extends CallsManagerListenerBase {
 
     @VisibleForTesting
     public void setCallAudioRouteFocusState(int focusState) {
-        mCallAudioRouteStateMachine.sendMessageWithSessionInfo(
+        mCallAudioRouteAdapter.sendMessageWithSessionInfo(
                 CallAudioRouteStateMachine.SWITCH_FOCUS, focusState);
     }
 
@@ -650,8 +649,8 @@ public class CallAudioManager extends CallsManagerListenerBase {
     }
 
     @VisibleForTesting
-    public CallAudioRouteStateMachine getCallAudioRouteStateMachine() {
-        return mCallAudioRouteStateMachine;
+    public CallAudioRouteAdapter getCallAudioRouteAdapter() {
+        return mCallAudioRouteAdapter;
     }
 
     @VisibleForTesting
@@ -688,9 +687,9 @@ public class CallAudioManager extends CallsManagerListenerBase {
         mCallAudioModeStateMachine.dump(pw);
         pw.decreaseIndent();
 
-        pw.println("CallAudioRouteStateMachine:");
+        pw.println("mCallAudioRouteAdapter:");
         pw.increaseIndent();
-        mCallAudioRouteStateMachine.dump(pw);
+        mCallAudioRouteAdapter.dump(pw);
         pw.decreaseIndent();
 
         pw.println("BluetoothDeviceManager:");
@@ -933,7 +932,7 @@ public class CallAudioManager extends CallsManagerListenerBase {
                 mHoldingCalls.stream().map(c -> c.getId()).collect(Collectors.joining(","))
         );
         if (mForegroundCall != oldForegroundCall) {
-            mCallAudioRouteStateMachine.sendMessageWithSessionInfo(
+            mCallAudioRouteAdapter.sendMessageWithSessionInfo(
                     CallAudioRouteStateMachine.UPDATE_SYSTEM_AUDIO_ROUTE);
 
             if (mForegroundCall != null
