@@ -23,11 +23,8 @@ import android.Manifest;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.AppOpsManager;
-import android.app.compat.CompatChanges;
 import android.app.Notification;
 import android.app.NotificationManager;
-import android.compat.annotation.ChangeId;
-import android.compat.annotation.EnabledSince;
 import android.content.AttributionSource;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
@@ -41,7 +38,6 @@ import android.content.pm.ResolveInfo;
 import android.content.pm.ServiceInfo;
 import android.hardware.SensorPrivacyManager;
 import android.os.Binder;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
@@ -79,6 +75,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -92,6 +89,29 @@ public class InCallController extends CallsManagerListenerBase implements
         AppOpsManager.OnOpActiveChangedListener {
     public static final String NOTIFICATION_TAG = InCallController.class.getSimpleName();
     public static final int IN_CALL_SERVICE_NOTIFICATION_ID = 3;
+    private AnomalyReporterAdapter mAnomalyReporter = new AnomalyReporterAdapterImpl();
+
+    /**
+     * Anomaly Report UUIDs and corresponding error descriptions specific to InCallController.
+     */
+    public static final UUID SET_IN_CALL_ADAPTER_ERROR_UUID =
+            UUID.fromString("0c2adf96-353a-433c-afe9-1e5564f304f9");
+    public static final String SET_IN_CALL_ADAPTER_ERROR_MSG =
+            "Exception thrown while setting the in-call adapter.";
+    public static final UUID BIND_TO_IN_CALL_ERROR_UUID =
+            UUID.fromString("1261231d-b16a-4e0c-a322-623f8bb8e599");
+    public static final String BIND_TO_IN_CALL_ERROR_MSG =
+            "Failed to connect when attempting to bind to InCall.";
+    public static final UUID BIND_TO_IN_CALL_EMERGENCY_ERROR_UUID =
+            UUID.fromString("9ec8f1f0-3f0b-4079-9e9f-325f1262a8c7");
+    public static final String BIND_TO_IN_CALL_EMERGENCY_ERROR_MSG =
+            "Outgoing emergency call failed to connect when attempting to bind to InCall.";
+
+    @VisibleForTesting
+    public void setAnomalyReporterAdapter(AnomalyReporterAdapter mAnomalyReporterAdapter){
+        mAnomalyReporter = mAnomalyReporterAdapter;
+    }
+
     public class InCallServiceConnection {
         /**
          * Indicates that a call to {@link #connect(Call)} has succeeded and resulted in a
@@ -329,6 +349,13 @@ public class InCallController extends CallsManagerListenerBase implements
                         | Context.BIND_ALLOW_BACKGROUND_ACTIVITY_STARTS
                         | Context.BIND_SCHEDULE_LIKE_TOP_APP, userToBind)) {
                 Log.w(this, "Failed to connect.");
+                if (call != null && call.isEmergencyCall()) {
+                    mAnomalyReporter.reportAnomaly(BIND_TO_IN_CALL_EMERGENCY_ERROR_UUID,
+                            BIND_TO_IN_CALL_EMERGENCY_ERROR_MSG);
+                } else {
+                    mAnomalyReporter.reportAnomaly(BIND_TO_IN_CALL_ERROR_UUID,
+                            BIND_TO_IN_CALL_ERROR_MSG);
+                }
                 mIsConnected = false;
             }
 
@@ -491,7 +518,7 @@ public class InCallController extends CallsManagerListenerBase implements
                 Bundle extras = new Bundle();
                 extras.putLong(android.telecom.Call.EXTRA_LAST_EMERGENCY_CALLBACK_TIME_MILLIS,
                         mEmergencyCallHelper.getLastEmergencyCallTimeMillis());
-                call.putExtras(Call.SOURCE_CONNECTION_SERVICE, extras);
+                call.putConnectionServiceExtras(extras);
             }
 
             // If we are here, we didn't or could not connect to child. So lets connect ourselves.
@@ -806,7 +833,7 @@ public class InCallController extends CallsManagerListenerBase implements
 
         @Override
         public void onConnectionPropertiesChanged(Call call, boolean didRttChange) {
-            updateCall(call, false /* includeVideoProvider */, didRttChange);
+            updateCall(call, false /* includeVideoProvider */, didRttChange, null);
         }
 
         @Override
@@ -816,7 +843,7 @@ public class InCallController extends CallsManagerListenerBase implements
 
         @Override
         public void onVideoCallProviderChanged(Call call) {
-            updateCall(call, true /* videoProviderChanged */, false);
+            updateCall(call, true /* videoProviderChanged */, false, null);
         }
 
         @Override
@@ -833,21 +860,26 @@ public class InCallController extends CallsManagerListenerBase implements
          * Listens for changes to extras reported by a Telecom {@link Call}.
          *
          * Extras changes can originate from a {@link ConnectionService} or an {@link InCallService}
-         * so we will only trigger an update of the call information if the source of the extras
-         * change was a {@link ConnectionService}.
+         * so we will only trigger an update of the call information if the source of the
+         * extras change was a {@link ConnectionService}.
          *
-         * @param call The call.
-         * @param source The source of the extras change ({@link Call#SOURCE_CONNECTION_SERVICE} or
+         * @param call   The call.
+         * @param source The source of the extras change
+         *               ({@link Call#SOURCE_CONNECTION_SERVICE} or
          *               {@link Call#SOURCE_INCALL_SERVICE}).
          * @param extras The extras.
          */
         @Override
-        public void onExtrasChanged(Call call, int source, Bundle extras) {
-            // Do not inform InCallServices of changes which originated there.
-            if (source == Call.SOURCE_INCALL_SERVICE) {
-                return;
+        public void onExtrasChanged(Call call, int source, Bundle extras,
+                String requestingPackageName) {
+            if (source == Call.SOURCE_CONNECTION_SERVICE) {
+                updateCall(call);
+            } else if (source == Call.SOURCE_INCALL_SERVICE && requestingPackageName != null) {
+                // If the change originated from another InCallService, we'll propagate the change
+                // to all other InCallServices running, EXCEPT the one who made the original change.
+                updateCall(call, false /* videoProviderChanged */, false /* rttInfoChanged */,
+                        requestingPackageName);
             }
-            updateCall(call);
         }
 
         /**
@@ -918,7 +950,7 @@ public class InCallController extends CallsManagerListenerBase implements
         @Override
         public void onRttInitiationFailure(Call call, int reason) {
             notifyRttInitiationFailure(call, reason);
-            updateCall(call, false, true);
+            updateCall(call, false, true, null);
         }
 
         @Override
@@ -1507,6 +1539,7 @@ public class InCallController extends CallsManagerListenerBase implements
             }
 
             if (shouldStart) {
+                // Note, not checking return value, as this op call is merely for tracing use
                 mAppOpsManager.startOp(AppOpsManager.OP_PHONE_CALL_CAMERA, myUid(),
                         mContext.getOpPackageName(), false, null, null);
                 mSensorPrivacyManager.showSensorUseDialog(SensorPrivacyManager.Sensors.CAMERA);
@@ -2007,7 +2040,6 @@ public class InCallController extends CallsManagerListenerBase implements
         mInCallServices.putIfAbsent(userHandle,
                 new ArrayMap<InCallController.InCallServiceInfo, IInCallService>());
         mInCallServices.get(userHandle).put(info, inCallService);
-
         try {
             inCallService.setInCallAdapter(
                     new InCallAdapter(
@@ -2017,6 +2049,8 @@ public class InCallController extends CallsManagerListenerBase implements
                             info.getComponentName().getPackageName()));
         } catch (RemoteException e) {
             Log.e(this, e, "Failed to set the in-call adapter.");
+            mAnomalyReporter.reportAnomaly(SET_IN_CALL_ADAPTER_ERROR_UUID,
+                    SET_IN_CALL_ADAPTER_ERROR_MSG);
             Trace.endSection();
             return false;
         }
@@ -2100,19 +2134,24 @@ public class InCallController extends CallsManagerListenerBase implements
      * @param call The {@link Call}.
      */
     private void updateCall(Call call) {
-        updateCall(call, false /* videoProviderChanged */, false);
+        updateCall(call, false /* videoProviderChanged */, false, null);
     }
 
     /**
      * Informs all {@link InCallService} instances of the updated call information.
      *
-     * @param call The {@link Call}.
+     * @param call                 The {@link Call}.
      * @param videoProviderChanged {@code true} if the video provider changed, {@code false}
-     *      otherwise.
-     * @param rttInfoChanged {@code true} if any information about the RTT session changed,
-     * {@code false} otherwise.
+     *                             otherwise.
+     * @param rttInfoChanged       {@code true} if any information about the RTT session changed,
+     *                             {@code false} otherwise.
+     * @param exceptPackageName    When specified, this package name will not get a call update.
+     *                             Used ONLY from {@link Call#putConnectionServiceExtras(int, Bundle, String)} to
+     *                             ensure we can propagate extras changes between InCallServices but
+     *                             not inform the requestor of their own change.
      */
-    private void updateCall(Call call, boolean videoProviderChanged, boolean rttInfoChanged) {
+    private void updateCall(Call call, boolean videoProviderChanged, boolean rttInfoChanged,
+            String exceptPackageName) {
         UserHandle userFromCall = getUserFromCall(call);
         if (mInCallServices.containsKey(userFromCall)) {
             Log.i(this, "Sending updateCall %s", call);
@@ -2120,6 +2159,16 @@ public class InCallController extends CallsManagerListenerBase implements
             for (Map.Entry<InCallServiceInfo, IInCallService> entry : mInCallServices.
                     get(userFromCall).entrySet()) {
                 InCallServiceInfo info = entry.getKey();
+                ComponentName componentName = info.getComponentName();
+
+                // If specified, skip ICS if it matches the package name.  Used for cases where on
+                // ICS makes an update to extras and we want to skip updating the same ICS with the
+                // change that it implemented.
+                if (exceptPackageName != null
+                        && componentName.getPackageName().equals(exceptPackageName)) {
+                    continue;
+                }
+
                 if (call.isExternalCall() && !info.isExternalCallsSupported()) {
                     continue;
                 }
@@ -2138,7 +2187,6 @@ public class InCallController extends CallsManagerListenerBase implements
                                 mInCallServiceConnections.get(userFromCall).getInfo()),
                         info.getType() == IN_CALL_SERVICE_TYPE_SYSTEM_UI ||
                         info.getType() == IN_CALL_SERVICE_TYPE_NON_UI);
-                ComponentName componentName = info.getComponentName();
                 IInCallService inCallService = entry.getValue();
                 componentsUpdated.add(componentName);
 
@@ -2465,6 +2513,7 @@ public class InCallController extends CallsManagerListenerBase implements
                 && !isCarrierPrivilegedUsingMicDuringVoipCall();
         if (wasUsingMicrophone != mIsCallUsingMicrophone) {
             if (mIsCallUsingMicrophone) {
+                // Note, not checking return value, as this op call is merely for tracing use
                 mAppOpsManager.startOp(AppOpsManager.OP_PHONE_CALL_MICROPHONE, myUid(),
                         mContext.getOpPackageName(), false, null, null);
                 mSensorPrivacyManager.showSensorUseDialog(SensorPrivacyManager.Sensors.MICROPHONE);

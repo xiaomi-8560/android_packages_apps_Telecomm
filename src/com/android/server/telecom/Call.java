@@ -29,11 +29,9 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.os.OutcomeReceiver;
 import android.os.ParcelFileDescriptor;
 import android.os.Parcelable;
 import android.os.RemoteException;
-import android.os.ResultReceiver;
 import android.os.SystemClock;
 import android.os.Trace;
 import android.os.UserHandle;
@@ -70,6 +68,8 @@ import android.widget.Toast;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telecom.IVideoProvider;
 import com.android.internal.util.Preconditions;
+import com.android.server.telecom.stats.CallFailureCause;
+import com.android.server.telecom.stats.CallStateChangedAtomWriter;
 import com.android.server.telecom.ui.ToastFactory;
 
 import java.io.IOException;
@@ -119,55 +119,60 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
     /**
      * Listener for events on the call.
      */
-    @VisibleForTesting
     public interface Listener {
-        void onSuccessfulOutgoingCall(Call call, int callState);
-        void onFailedOutgoingCall(Call call, DisconnectCause disconnectCause);
-        void onSuccessfulIncomingCall(Call call);
-        void onFailedIncomingCall(Call call);
-        void onSuccessfulUnknownCall(Call call, int callState);
-        void onFailedUnknownCall(Call call);
-        void onRingbackRequested(Call call, boolean ringbackRequested);
-        void onPostDialWait(Call call, String remaining);
-        void onPostDialChar(Call call, char nextChar);
-        void onConnectionCapabilitiesChanged(Call call);
-        void onConnectionPropertiesChanged(Call call, boolean didRttChange);
-        void onParentChanged(Call call);
-        void onChildrenChanged(Call call);
-        void onCannedSmsResponsesLoaded(Call call);
-        void onVideoCallProviderChanged(Call call);
-        void onCallerInfoChanged(Call call);
-        void onIsVoipAudioModeChanged(Call call);
-        void onStatusHintsChanged(Call call);
-        void onExtrasChanged(Call c, int source, Bundle extras);
-        void onExtrasRemoved(Call c, int source, List<String> keys);
-        void onHandleChanged(Call call);
-        void onCallerDisplayNameChanged(Call call);
-        void onCallDirectionChanged(Call call);
-        void onVideoStateChanged(Call call, int previousVideoState, int newVideoState);
-        void onTargetPhoneAccountChanged(Call call);
-        void onConnectionManagerPhoneAccountChanged(Call call);
-        void onPhoneAccountChanged(Call call);
-        void onConferenceableCallsChanged(Call call);
-        void onConferenceStateChanged(Call call, boolean isConference);
-        void onCdmaConferenceSwap(Call call);
-        boolean onCanceledViaNewOutgoingCallBroadcast(Call call, long disconnectionTimeout);
-        void onHoldToneRequested(Call call);
-        void onCallHoldFailed(Call call);
-        void onCallSwitchFailed(Call call);
-        void onConnectionEvent(Call call, String event, Bundle extras);
-        void onCallStreamingStateChanged(Call call, boolean isStreaming);
-        void onExternalCallChanged(Call call, boolean isExternalCall);
-        void onRttInitiationFailure(Call call, int reason);
-        void onRemoteRttRequest(Call call, int requestId);
-        void onHandoverRequested(Call call, PhoneAccountHandle handoverTo, int videoState,
-                                 Bundle extras, boolean isLegacy);
-        void onHandoverFailed(Call call, int error);
-        void onHandoverComplete(Call call);
-        void onBluetoothCallQualityReport(Call call, BluetoothCallQualityReport report);
-        void onReceivedDeviceToDeviceMessage(Call call, int messageType, int messageValue);
-        void onReceivedCallQualityReport(Call call, CallQuality callQuality);
-        void onCallerNumberVerificationStatusChanged(Call call, int callerNumberVerificationStatus);
+        default void onSuccessfulOutgoingCall(Call call, int callState) {};
+        default void onFailedOutgoingCall(Call call, DisconnectCause disconnectCause) {};
+        default void onSuccessfulIncomingCall(Call call) {};
+        default void onFailedIncomingCall(Call call) {};
+        default void onSuccessfulUnknownCall(Call call, int callState) {};
+        default void onFailedUnknownCall(Call call) {};
+        default void onRingbackRequested(Call call, boolean ringbackRequested) {};
+        default void onPostDialWait(Call call, String remaining) {};
+        default void onPostDialChar(Call call, char nextChar) {};
+        default void onConnectionCapabilitiesChanged(Call call) {};
+        default void onConnectionPropertiesChanged(Call call, boolean didRttChange) {};
+        default void onParentChanged(Call call) {};
+        default void onChildrenChanged(Call call) {};
+        default void onCannedSmsResponsesLoaded(Call call) {};
+        default void onVideoCallProviderChanged(Call call) {};
+        default void onCallerInfoChanged(Call call) {};
+        default void onIsVoipAudioModeChanged(Call call) {};
+        default void onStatusHintsChanged(Call call) {};
+        default void onExtrasChanged(Call c, int source, Bundle extras,
+                String requestingPackageName) {};
+        default void onExtrasRemoved(Call c, int source, List<String> keys) {};
+        default void onHandleChanged(Call call) {};
+        default void onCallerDisplayNameChanged(Call call) {};
+        default void onCallDirectionChanged(Call call) {};
+        default void onVideoStateChanged(Call call, int previousVideoState, int newVideoState) {};
+        default void onTargetPhoneAccountChanged(Call call) {};
+        default void onConnectionManagerPhoneAccountChanged(Call call) {};
+        default void onPhoneAccountChanged(Call call) {};
+        default void onConferenceableCallsChanged(Call call) {};
+        default void onConferenceStateChanged(Call call, boolean isConference) {};
+        default void onCdmaConferenceSwap(Call call) {};
+        default boolean onCanceledViaNewOutgoingCallBroadcast(Call call,
+                long disconnectionTimeout) {
+            return false;
+        };
+        default void onHoldToneRequested(Call call) {};
+        default void onCallHoldFailed(Call call) {};
+        default void onCallSwitchFailed(Call call) {};
+        default void onConnectionEvent(Call call, String event, Bundle extras) {};
+        default void onCallStreamingStateChanged(Call call, boolean isStreaming) {}
+        default void onExternalCallChanged(Call call, boolean isExternalCall) {};
+        default void onRttInitiationFailure(Call call, int reason) {};
+        default void onRemoteRttRequest(Call call, int requestId) {};
+        default void onHandoverRequested(Call call, PhoneAccountHandle handoverTo, int videoState,
+                Bundle extras, boolean isLegacy)  {};
+        default void onHandoverFailed(Call call, int error) {};
+        default void onHandoverComplete(Call call)  {};
+        default void onBluetoothCallQualityReport(Call call, BluetoothCallQualityReport report) {};
+        default void onReceivedDeviceToDeviceMessage(Call call, int messageType,
+                int messageValue) {};
+        default void onReceivedCallQualityReport(Call call, CallQuality callQuality) {};
+        default void onCallerNumberVerificationStatusChanged(Call call,
+                int callerNumberVerificationStatus) {};
     }
 
     public abstract static class ListenerBase implements Listener {
@@ -208,7 +213,8 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
         @Override
         public void onStatusHintsChanged(Call call) {}
         @Override
-        public void onExtrasChanged(Call c, int source, Bundle extras) {}
+        public void onExtrasChanged(Call c, int source, Bundle extras,
+                String requestingPackageName) {}
         @Override
         public void onExtrasRemoved(Call c, int source, List<String> keys) {}
         @Override
@@ -357,6 +363,17 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
     /** The state of the call. */
     private int mState;
 
+    /**
+     * Determines whether the {@link ConnectionService} has responded to the initial request to
+     * create the connection.
+     *
+     * {@code false} indicates the {@link Call} has been added to Telecom, but the
+     * {@link Connection} has not yet been returned by the associated {@link ConnectionService}.
+     * {@code true} indicates the {@link Call} has an associated {@link Connection} reported by the
+     * {@link ConnectionService}.
+     */
+    private boolean mIsCreateConnectionComplete = false;
+
     /** The handle with which to establish this call. */
     private Uri mHandle;
 
@@ -491,6 +508,8 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
     private final String mId;
     private String mConnectionId;
     private Analytics.CallInfo mAnalytics = new Analytics.CallInfo();
+    private CallStateChangedAtomWriter mCallStateChangedAtomWriter =
+            new CallStateChangedAtomWriter();
     private char mPlayingDtmfTone;
 
     private boolean mWasConferencePreviouslyMerged = false;
@@ -784,6 +803,8 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
         mCreationTimeMillis = mClockProxy.currentTimeMillis();
         mMissedReason = MISSED_REASON_NOT_MISSED;
         mStartRingTime = 0;
+
+        mCallStateChangedAtomWriter.setExistingCallCount(callsManager.getCalls().size());
     }
 
     /**
@@ -1054,7 +1075,6 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
         return (!mIsTransactionalCall ? mConnectionService : mTransactionalService);
     }
 
-    @VisibleForTesting
     public int getState() {
         return mState;
     }
@@ -1261,10 +1281,15 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
                 }
                 Log.addEvent(this, event, stringData);
             }
-            int statsdDisconnectCause = (newState == CallState.DISCONNECTED) ?
-                    getDisconnectCause().getCode() : DisconnectCause.UNKNOWN;
-            TelecomStatsLog.write(TelecomStatsLog.CALL_STATE_CHANGED, newState,
-                    statsdDisconnectCause, isSelfManaged(), isExternalCall());
+
+            mCallStateChangedAtomWriter
+                    .setDisconnectCause(getDisconnectCause())
+                    .setSelfManaged(isSelfManaged())
+                    .setExternalCall(isExternalCall())
+                    .setEmergencyCall(isEmergencyCall())
+                    .setDurationSeconds(Long.valueOf(
+                        (mDisconnectTimeMillis - mConnectTimeMillis) / 1000).intValue())
+                    .write(newState);
         }
         return true;
     }
@@ -1285,7 +1310,7 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
         Bundle bundle = new Bundle();
         bundle.putBoolean(android.telecom.Call.EXTRA_SILENT_RINGING_REQUESTED,
                 silentRingingRequested);
-        putExtras(SOURCE_CONNECTION_SERVICE, bundle);
+        putConnectionServiceExtras(bundle);
     }
 
     public boolean isSilentRingingRequested() {
@@ -1296,7 +1321,7 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
         Bundle bundle = new Bundle();
         bundle.putBoolean(android.telecom.Call.EXTRA_IS_SUPPRESSED_BY_DO_NOT_DISTURB,
                 isCallSuppressed);
-        putExtras(SOURCE_CONNECTION_SERVICE, bundle);
+        putConnectionServiceExtras(bundle);
     }
 
     public boolean isCallSuppressedByDoNotDisturb() {
@@ -1516,9 +1541,17 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
      * @return {@code true} if this is an outgoing call to emergency services. An outgoing call is
      * identified as an emergency call by the dialer phone number.
      */
-    @VisibleForTesting
     public boolean isEmergencyCall() {
         return mIsEmergencyCall;
+    }
+
+    /**
+     * For testing purposes, set if this call is an emergency call or not.
+     * @param isEmergencyCall {@code true} if emergency, {@code false} otherwise.
+     */
+    @VisibleForTesting
+    public void setIsEmergencyCall(boolean isEmergencyCall) {
+        mIsEmergencyCall = isEmergencyCall;
     }
 
     /**
@@ -1628,6 +1661,12 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
         }
         checkIfVideoCapable();
         checkIfRttCapable();
+
+        if (accountHandle != null) {
+            mCallStateChangedAtomWriter.setUid(
+                    accountHandle.getComponentName().getPackageName(),
+                    mContext.getPackageManager());
+        }
     }
 
     public UserHandle getUserHandleFromTargetPhoneAccount() {
@@ -2276,6 +2315,7 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
             CallIdMapper idMapper,
             ParcelableConference conference) {
         Log.v(this, "handleCreateConferenceSuccessful %s", conference);
+        mIsCreateConnectionComplete = true;
         setTargetPhoneAccount(conference.getPhoneAccount());
         setHandle(conference.getHandle(), conference.getHandlePresentation());
 
@@ -2285,7 +2325,7 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
         setVideoState(conference.getVideoState());
         setRingbackRequested(conference.isRingbackRequested());
         setStatusHints(conference.getStatusHints());
-        putExtras(SOURCE_CONNECTION_SERVICE, conference.getExtras());
+        putConnectionServiceExtras(conference.getExtras());
 
         switch (mCallDirection) {
             case CALL_DIRECTION_INCOMING:
@@ -2309,6 +2349,7 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
             CallIdMapper idMapper,
             ParcelableConnection connection) {
         Log.v(this, "handleCreateConnectionSuccessful %s", connection);
+        mIsCreateConnectionComplete = true;
         setTargetPhoneAccount(connection.getPhoneAccount());
         setHandle(connection.getHandle(), connection.getHandlePresentation());
 
@@ -2322,7 +2363,7 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
         setVideoState(connection.getVideoState());
         setRingbackRequested(connection.isRingbackRequested());
         setStatusHints(connection.getStatusHints());
-        putExtras(SOURCE_CONNECTION_SERVICE, connection.getExtras());
+        putConnectionServiceExtras(connection.getExtras());
 
         mConferenceableCalls.clear();
         for (String id : connection.getConferenceableConnectionIds()) {
@@ -2455,7 +2496,6 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
         disconnect(0);
     }
 
-    @VisibleForTesting
     public void disconnect(String reason) {
         disconnect(0, reason);
     }
@@ -2484,7 +2524,7 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
 
         if (mState == CallState.NEW || mState == CallState.SELECT_PHONE_ACCOUNT ||
                 mState == CallState.CONNECTING) {
-            Log.v(this, "Aborting call %s", this);
+            Log.i(this, "disconnect: Aborting call %s", getId());
             abort(disconnectionTimeout);
         } else if (mState != CallState.ABORTED && mState != CallState.DISCONNECTED) {
             if (mState == CallState.AUDIO_PROCESSING && !hasGoneActiveBefore()) {
@@ -2832,18 +2872,45 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
     }
 
     /**
+     * Adds extras to the extras bundle associated with this {@link Call}, as made by a
+     * {@link ConnectionService} or other non {@link android.telecom.InCallService} source.
+     *
+     * @param extras The extras.
+     */
+    public void putConnectionServiceExtras(Bundle extras) {
+        putExtras(SOURCE_CONNECTION_SERVICE, extras, null);
+    }
+
+    /**
+     * Adds extras to the extras bundle associated with this {@link Call}, as made by a
+     * {@link android.telecom.InCallService}.
+     * @param extras the extras.
+     * @param requestingPackageName the package name of the {@link android.telecom.InCallService}
+     *                              which requested the extras changed; required so that when we
+     *                              have {@link InCallController} notify other
+     *                              {@link android.telecom.InCallService}s we don't notify the
+     *                              originator of their own change.
+     */
+    public void putInCallServiceExtras(Bundle extras, String requestingPackageName) {
+        putExtras(SOURCE_INCALL_SERVICE, extras, requestingPackageName);
+    }
+
+    /**
      * Adds extras to the extras bundle associated with this {@link Call}.
      *
      * Note: this method needs to know the source of the extras change (see
      * {@link #SOURCE_CONNECTION_SERVICE}, {@link #SOURCE_INCALL_SERVICE}).  Extras changes which
-     * originate from a connection service will only be notified to incall services.  Likewise,
-     * changes originating from the incall services will only notify the connection service of the
-     * change.
+     * originate from a connection service will only be notified to incall services.  Changes
+     * originating from the InCallServices will notify the connection service of the
+     * change, as well as other InCallServices other than the originator.
      *
      * @param source The source of the extras addition.
      * @param extras The extras.
+     * @param requestingPackageName The package name which requested the extras change.  For
+     *                              {@link #SOURCE_INCALL_SERVICE} will be populated with the
+     *                              package name of the ICS that requested the change.
      */
-    public void putExtras(int source, Bundle extras) {
+    private void putExtras(int source, Bundle extras, String requestingPackageName) {
         if (extras == null) {
             return;
         }
@@ -2853,7 +2920,7 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
         mExtras.putAll(extras);
 
         for (Listener l : mListeners) {
-            l.onExtrasChanged(this, source, extras);
+            l.onExtrasChanged(this, source, extras, requestingPackageName);
         }
 
         // If mExtra shows that the call using Volte, record it with mWasVolte
@@ -2887,6 +2954,7 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
 
         // If the change originated from an InCallService, notify the connection service.
         if (source == SOURCE_INCALL_SERVICE) {
+            Log.addEvent(this, LogUtils.Events.ICS_EXTRAS_CHANGED);
             if (mTransactionalService != null) {
                 Log.i(this, "putExtras: called on TransactionalService. doing nothing");
             } else if (mConnectionService != null) {
@@ -4307,6 +4375,14 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
         mCallScreeningComponentName = callScreeningComponentName;
     }
 
+    public void setStartFailCause(CallFailureCause cause) {
+        mCallStateChangedAtomWriter.setStartFailCause(cause);
+    }
+
+    public void increaseHeldByThisCallCount() {
+        mCallStateChangedAtomWriter.increaseHeldCallCount();
+    }
+
     public void maybeOnInCallServiceTrackingChanged(boolean isTracking, boolean hasUi) {
         if (mTransactionalService != null) {
             Log.i(this,
@@ -4397,6 +4473,19 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
             mDisconnectFuture.complete(false);
             mDisconnectFuture = null;
         }
+    }
+
+    /**
+     * @return {@code true} if the connection has been created by the underlying
+     * {@link ConnectionService}, {@code false} otherwise.
+     */
+    public boolean isCreateConnectionComplete() {
+        return mIsCreateConnectionComplete;
+    }
+
+    @VisibleForTesting
+    public void setIsCreateConnectionComplete(boolean isCreateConnectionComplete) {
+        mIsCreateConnectionComplete = isCreateConnectionComplete;
     }
 
     public boolean isStreaming() {

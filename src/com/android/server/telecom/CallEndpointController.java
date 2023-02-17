@@ -64,12 +64,14 @@ public class CallEndpointController extends CallsManagerListenerBase {
         mRouteToTypeMap.put(CallAudioState.ROUTE_BLUETOOTH, CallEndpoint.TYPE_BLUETOOTH);
         mRouteToTypeMap.put(CallAudioState.ROUTE_WIRED_HEADSET, CallEndpoint.TYPE_WIRED_HEADSET);
         mRouteToTypeMap.put(CallAudioState.ROUTE_SPEAKER, CallEndpoint.TYPE_SPEAKER);
+        mRouteToTypeMap.put(CallAudioState.ROUTE_STREAMING, CallEndpoint.TYPE_STREAMING);
 
         mTypeToRouteMap = new HashMap<>(5);
         mTypeToRouteMap.put(CallEndpoint.TYPE_EARPIECE, CallAudioState.ROUTE_EARPIECE);
         mTypeToRouteMap.put(CallEndpoint.TYPE_BLUETOOTH, CallAudioState.ROUTE_BLUETOOTH);
         mTypeToRouteMap.put(CallEndpoint.TYPE_WIRED_HEADSET, CallAudioState.ROUTE_WIRED_HEADSET);
         mTypeToRouteMap.put(CallEndpoint.TYPE_SPEAKER, CallAudioState.ROUTE_SPEAKER);
+        mTypeToRouteMap.put(CallEndpoint.TYPE_STREAMING, CallAudioState.ROUTE_STREAMING);
     }
 
     @VisibleForTesting
@@ -164,6 +166,10 @@ public class CallEndpointController extends CallsManagerListenerBase {
             if (call != null && call.getConnectionService() != null) {
                 call.getConnectionService().onCallEndpointChanged(call, mActiveCallEndpoint);
             }
+            else if (call != null && call.getTransactionServiceWrapper() != null) {
+                call.getTransactionServiceWrapper()
+                        .onCallEndpointChanged(call, mActiveCallEndpoint);
+            }
         }
     }
 
@@ -176,6 +182,10 @@ public class CallEndpointController extends CallsManagerListenerBase {
                 call.getConnectionService().onAvailableCallEndpointsChanged(call,
                         mAvailableCallEndpoints);
             }
+            else if (call != null && call.getTransactionServiceWrapper() != null) {
+                call.getTransactionServiceWrapper()
+                        .onAvailableCallEndpointsChanged(call, mAvailableCallEndpoints);
+            }
         }
     }
 
@@ -187,6 +197,9 @@ public class CallEndpointController extends CallsManagerListenerBase {
             if (call != null && call.getConnectionService() != null) {
                 call.getConnectionService().onMuteStateChanged(call, isMuted);
             }
+            else if (call != null && call.getTransactionServiceWrapper() != null) {
+                call.getTransactionServiceWrapper().onMuteStateChanged(call, isMuted);
+            }
         }
     }
 
@@ -196,7 +209,15 @@ public class CallEndpointController extends CallsManagerListenerBase {
 
         mRouteToTypeMap.forEach((route, type)->{
             if ((state.getSupportedRouteMask() & route) != 0) {
-                if (type == CallEndpoint.TYPE_BLUETOOTH) {
+                if (type == CallEndpoint.TYPE_STREAMING) {
+                    if (state.getRoute() == CallAudioState.ROUTE_STREAMING) {
+                        if (mActiveCallEndpoint == null
+                                || mActiveCallEndpoint.getEndpointType() != type) {
+                            mActiveCallEndpoint = new CallEndpoint(getEndpointName(type) != null
+                                    ? getEndpointName(type) : "", type);
+                        }
+                    }
+                } else if (type == CallEndpoint.TYPE_BLUETOOTH) {
                     for (BluetoothDevice device : state.getSupportedBluetoothDevices()) {
                         CallEndpoint endpoint = findMatchingBluetoothEndpoint(device);
                         if (endpoint == null) {

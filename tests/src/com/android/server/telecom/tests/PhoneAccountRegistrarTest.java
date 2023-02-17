@@ -22,11 +22,17 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyObject;
+import static org.mockito.ArgumentMatchers.isA;
 import static org.mockito.Matchers.anyBoolean;
 import static org.mockito.Matchers.anyInt;
 import static org.mockito.Matchers.anyString;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -83,19 +89,26 @@ import java.io.BufferedOutputStream;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.IOException;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 @RunWith(JUnit4.class)
 public class PhoneAccountRegistrarTest extends TelecomTestCase {
 
     private static final int MAX_VERSION = Integer.MAX_VALUE;
+    private static final int INVALID_CHAR_LIMIT_COUNT =
+            PhoneAccountRegistrar.MAX_PHONE_ACCOUNT_FIELD_CHAR_LIMIT + 1;
+    private static final String INVALID_STR = "a".repeat(INVALID_CHAR_LIMIT_COUNT);
     private static final String FILE_NAME = "phone-account-registrar-test-1223.xml";
     private static final String TEST_LABEL = "right";
+    private static final String TEST_ID = "123";
     private final String PACKAGE_1 = "PACKAGE_1";
     private final String PACKAGE_2 = "PACKAGE_2";
     private final String COMPONENT_NAME = "com.android.server.telecom.tests.MockConnectionService";
@@ -1332,6 +1345,331 @@ public class PhoneAccountRegistrarTest extends TelecomTestCase {
                 = defaultPhoneAccountHandles.iterator().next();
         assertEquals(Integer.toString(mTestPhoneAccountHandleSubIdInt),
                 defaultPhoneAccountHandle.phoneAccountHandle.getId());
+    }
+
+    /**
+     * Test that an {@link IllegalArgumentException} is thrown when a package registers a
+     * {@link PhoneAccountHandle} with a { PhoneAccountHandle#packageName} that is over the
+     * character limit set
+     */
+    @Test
+    public void testInvalidPhoneAccountHandlePackageNameThrowsException() {
+        // GIVEN
+        String invalidPackageName = INVALID_STR;
+        PhoneAccountHandle handle = makeQuickAccountHandle(
+                new ComponentName(invalidPackageName, this.getClass().getName()), TEST_ID);
+        PhoneAccount.Builder builder = makeBuilderWithBindCapabilities(handle);
+
+        // THEN
+        try {
+            PhoneAccount account = builder.build();
+            assertEquals(invalidPackageName,
+                    account.getAccountHandle().getComponentName().getPackageName());
+            mRegistrar.registerPhoneAccount(account);
+            fail("failed to throw IllegalArgumentException");
+        } catch (IllegalArgumentException e) {
+            // pass test
+        } finally {
+            mRegistrar.unregisterPhoneAccount(handle);
+        }
+    }
+
+    /**
+     * Test that an {@link IllegalArgumentException} is thrown when a package registers a
+     * {@link PhoneAccountHandle} with a { PhoneAccountHandle#className} that is over the
+     * character limit set
+     */
+    @Test
+    public void testInvalidPhoneAccountHandleClassNameThrowsException() {
+        // GIVEN
+        String invalidClassName = INVALID_STR;
+        PhoneAccountHandle handle = makeQuickAccountHandle(
+                new ComponentName(this.getClass().getPackageName(), invalidClassName), TEST_ID);
+        PhoneAccount.Builder builder = makeBuilderWithBindCapabilities(handle);
+
+        // THEN
+        try {
+            PhoneAccount account = builder.build();
+            assertEquals(invalidClassName,
+                    account.getAccountHandle().getComponentName().getClassName());
+            mRegistrar.registerPhoneAccount(account);
+            fail("failed to throw IllegalArgumentException");
+        } catch (IllegalArgumentException e) {
+            // pass test
+        } finally {
+            mRegistrar.unregisterPhoneAccount(handle);
+        }
+    }
+
+    /**
+     * Test that an {@link IllegalArgumentException} is thrown when a package registers a
+     * {@link PhoneAccountHandle} with a { PhoneAccount#mId} that is over the character limit set
+     */
+    @Test
+    public void testInvalidPhoneAccountHandleIdThrowsException() {
+        // GIVEN
+        String invalidId = INVALID_STR;
+        PhoneAccountHandle handle = makeQuickAccountHandle(invalidId);
+        PhoneAccount.Builder builder = makeBuilderWithBindCapabilities(handle);
+
+        // THEN
+        try {
+            PhoneAccount account = builder.build();
+            assertEquals(invalidId, account.getAccountHandle().getId());
+            mRegistrar.registerPhoneAccount(account);
+            fail("failed to throw IllegalArgumentException");
+        } catch (IllegalArgumentException e) {
+            // pass test
+        } finally {
+            mRegistrar.unregisterPhoneAccount(handle);
+        }
+    }
+
+    /**
+     * Test that an {@link IllegalArgumentException} is thrown when a package registers a
+     * {@link PhoneAccount} with a { PhoneAccount#mLabel} that is over the character limit set
+     */
+    @Test
+    public void testInvalidLabelThrowsException() {
+        // GIVEN
+        String invalidLabel = INVALID_STR;
+        PhoneAccountHandle handle = makeQuickAccountHandle(TEST_ID);
+        PhoneAccount.Builder builder = new PhoneAccount.Builder(handle, invalidLabel)
+                .setCapabilities(PhoneAccount.CAPABILITY_SUPPORTS_TRANSACTIONAL_OPERATIONS);
+
+        // WHEN
+        when(mAppLabelProxy.getAppLabel(anyString())).thenReturn(invalidLabel);
+
+        // THEN
+        try {
+            PhoneAccount account = builder.build();
+            assertEquals(invalidLabel, account.getLabel());
+            mRegistrar.registerPhoneAccount(account);
+            fail("failed to throw IllegalArgumentException");
+        } catch (IllegalArgumentException e) {
+            // pass test
+        } finally {
+            mRegistrar.unregisterPhoneAccount(handle);
+        }
+    }
+
+    /**
+     * Test that an {@link IllegalArgumentException} is thrown when a package registers a
+     * {@link PhoneAccount} with a {PhoneAccount#mShortDescription} that is over the character
+     * limit set
+     */
+    @Test
+    public void testInvalidShortDescriptionThrowsException() {
+        // GIVEN
+        String invalidShortDescription = INVALID_STR;
+        PhoneAccountHandle handle = makeQuickAccountHandle(TEST_ID);
+        PhoneAccount.Builder builder = makeBuilderWithBindCapabilities(handle)
+                .setShortDescription(invalidShortDescription);
+
+        // THEN
+        try {
+            PhoneAccount account = builder.build();
+            assertEquals(invalidShortDescription, account.getShortDescription());
+            mRegistrar.registerPhoneAccount(account);
+            fail("failed to throw IllegalArgumentException");
+        } catch (IllegalArgumentException e) {
+            // pass test
+        } finally {
+            mRegistrar.unregisterPhoneAccount(handle);
+        }
+    }
+
+    /**
+     * Test that an {@link IllegalArgumentException} is thrown when a package registers a
+     * {@link PhoneAccount} with a {PhoneAccount#mGroupId} that is over the character limit set
+     */
+    @Test
+    public void testInvalidGroupIdThrowsException() {
+        // GIVEN
+        String invalidGroupId = INVALID_STR;
+        PhoneAccountHandle handle = makeQuickAccountHandle(TEST_ID);
+        PhoneAccount.Builder builder = makeBuilderWithBindCapabilities(handle)
+                .setGroupId(invalidGroupId);
+
+        // THEN
+        try {
+            PhoneAccount account = builder.build();
+            assertEquals(invalidGroupId, account.getGroupId());
+            mRegistrar.registerPhoneAccount(account);
+            fail("failed to throw IllegalArgumentException");
+        } catch (IllegalArgumentException e) {
+            // pass test
+        } finally {
+            mRegistrar.unregisterPhoneAccount(handle);
+        }
+    }
+
+    /**
+     * Test that an {@link IllegalArgumentException} is thrown when a package registers a
+     * {@link PhoneAccount} with a {PhoneAccount#mExtras} that is over the character limit set
+     */
+    @Test
+    public void testInvalidExtraStringKeyThrowsException() {
+        // GIVEN
+        String invalidBundleKey = INVALID_STR;
+        String keyValue = "value";
+        Bundle extras = new Bundle();
+        extras.putString(invalidBundleKey, keyValue);
+        PhoneAccountHandle handle = makeQuickAccountHandle(TEST_ID);
+        PhoneAccount.Builder builder = makeBuilderWithBindCapabilities(handle)
+                .setExtras(extras);
+
+        // THEN
+        try {
+            PhoneAccount account = builder.build();
+            assertEquals(keyValue, account.getExtras().getString(invalidBundleKey));
+            mRegistrar.registerPhoneAccount(account);
+            fail("failed to throw IllegalArgumentException");
+        } catch (IllegalArgumentException e) {
+            // pass test
+        } finally {
+            mRegistrar.unregisterPhoneAccount(handle);
+        }
+    }
+
+    /**
+     * Test that an {@link IllegalArgumentException} is thrown when a package registers a
+     * {@link PhoneAccount} with a {PhoneAccount#mExtras} that is over the character limit set
+     */
+    @Test
+    public void testInvalidExtraStringValueThrowsException() {
+        // GIVEN
+        String extrasKey = "ExtrasStringKey";
+        String invalidBundleValue = INVALID_STR;
+        Bundle extras = new Bundle();
+        extras.putString(extrasKey, invalidBundleValue);
+        PhoneAccountHandle handle = makeQuickAccountHandle(TEST_ID);
+        PhoneAccount.Builder builder = makeBuilderWithBindCapabilities(handle)
+                .setExtras(extras);
+
+        // THEN
+        try {
+            PhoneAccount account = builder.build();
+            assertEquals(invalidBundleValue, account.getExtras().getString(extrasKey));
+            mRegistrar.registerPhoneAccount(account);
+            fail("failed to throw IllegalArgumentException");
+        } catch (IllegalArgumentException e) {
+            // pass test
+        } finally {
+            mRegistrar.unregisterPhoneAccount(handle);
+        }
+    }
+
+    /**
+     * Test that an {@link IllegalArgumentException} is thrown when a package registers a
+     * {@link PhoneAccount} with a {PhoneAccount#mExtras} that is over the (key,value) pair limit
+     */
+    @Test
+    public void testInvalidExtraElementsExceedsLimitAndThrowsException() {
+        // GIVEN
+        int invalidBundleExtrasLimit =
+                PhoneAccountRegistrar.MAX_PHONE_ACCOUNT_EXTRAS_KEY_PAIR_LIMIT + 1;
+        Bundle extras = new Bundle();
+        for (int i = 0; i < invalidBundleExtrasLimit; i++) {
+            extras.putString(UUID.randomUUID().toString(), "value");
+        }
+        PhoneAccountHandle handle = makeQuickAccountHandle(TEST_ID);
+        PhoneAccount.Builder builder = makeBuilderWithBindCapabilities(handle)
+                .setExtras(extras);
+        // THEN
+        try {
+            PhoneAccount account = builder.build();
+            assertEquals(invalidBundleExtrasLimit, account.getExtras().size());
+            mRegistrar.registerPhoneAccount(account);
+            fail("failed to throw IllegalArgumentException");
+        } catch (IllegalArgumentException e) {
+            // Test Pass
+        } finally {
+            mRegistrar.unregisterPhoneAccount(handle);
+        }
+    }
+
+    /**
+     * Ensure an IllegalArgumentException is thrown when adding more than 10 schemes for a single
+     * account
+     */
+    @Test
+    public void testLimitOnSchemeCount() {
+        PhoneAccountHandle handle = makeQuickAccountHandle(TEST_ID);
+        PhoneAccount.Builder builder = new PhoneAccount.Builder(handle, TEST_LABEL);
+        for (int i = 0; i < PhoneAccountRegistrar.MAX_PHONE_ACCOUNT_REGISTRATIONS + 1; i++) {
+            builder.addSupportedUriScheme(Integer.toString(i));
+        }
+        try {
+            mRegistrar.enforceLimitsOnSchemes(builder.build());
+            fail("should have hit exception in enforceLimitOnSchemes");
+        } catch (IllegalArgumentException e) {
+            // pass test
+        }
+    }
+
+    /**
+     * Ensure an IllegalArgumentException is thrown when adding more 256 chars for a single
+     * account
+     */
+    @Test
+    public void testLimitOnSchemeLength() {
+        PhoneAccountHandle handle = makeQuickAccountHandle(TEST_ID);
+        PhoneAccount.Builder builder = new PhoneAccount.Builder(handle, TEST_LABEL);
+        builder.addSupportedUriScheme(INVALID_STR);
+        try {
+            mRegistrar.enforceLimitsOnSchemes(builder.build());
+            fail("should have hit exception in enforceLimitOnSchemes");
+        } catch (IllegalArgumentException e) {
+            // pass test
+        }
+    }
+
+    /**
+     * Ensure an IllegalArgumentException is thrown when adding an address over the limit
+     */
+    @Test
+    public void testLimitOnAddress() {
+        String text = "a".repeat(100);
+        PhoneAccountHandle handle = makeQuickAccountHandle(TEST_ID);
+        PhoneAccount.Builder builder = makeBuilderWithBindCapabilities(handle)
+                .setAddress(Uri.fromParts(text, text, text));
+        try {
+            mRegistrar.registerPhoneAccount(builder.build());
+            fail("failed to throw IllegalArgumentException");
+        } catch (IllegalArgumentException e) {
+            // pass test
+        }
+        finally {
+            mRegistrar.unregisterPhoneAccount(handle);
+        }
+    }
+
+    /**
+     * Ensure an IllegalArgumentException is thrown when an Icon that throws an IOException is given
+     */
+    @Test
+    public void testLimitOnIcon() throws Exception {
+        Icon mockIcon = mock(Icon.class);
+        // GIVEN
+        PhoneAccount.Builder builder = makeBuilderWithBindCapabilities(
+                makeQuickAccountHandle(TEST_ID)).setIcon(mockIcon);
+        try {
+            // WHEN
+            Mockito.doThrow(new IOException())
+                    .when(mockIcon).writeToStream(any(OutputStream.class));
+            //THEN
+            mRegistrar.enforceIconSizeLimit(builder.build());
+            fail("failed to throw IllegalArgumentException");
+        } catch (IllegalArgumentException e) {
+            // pass test
+            assertTrue(e.getMessage().contains(PhoneAccountRegistrar.ICON_ERROR_MSG));
+        }
+    }
+
+    private static PhoneAccount.Builder makeBuilderWithBindCapabilities(PhoneAccountHandle handle) {
+        return new PhoneAccount.Builder(handle, TEST_LABEL)
+                .setCapabilities(PhoneAccount.CAPABILITY_SUPPORTS_TRANSACTIONAL_OPERATIONS);
     }
 
     private static ComponentName makeQuickConnectionServiceComponentName() {

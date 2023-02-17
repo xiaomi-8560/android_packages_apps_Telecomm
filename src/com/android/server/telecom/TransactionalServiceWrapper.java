@@ -26,21 +26,23 @@ import android.os.IBinder;
 import android.os.OutcomeReceiver;
 import android.os.RemoteException;
 import android.os.ResultReceiver;
-import android.telecom.CallAudioState;
+import android.telecom.CallEndpoint;
 import android.telecom.CallException;
 import android.telecom.CallStreamingService;
 import android.telecom.DisconnectCause;
 import android.telecom.Log;
 import android.telecom.PhoneAccountHandle;
+import android.text.TextUtils;
 
 import androidx.annotation.VisibleForTesting;
 
 import com.android.internal.telecom.ICallControl;
 import com.android.internal.telecom.ICallEventCallback;
 import com.android.server.telecom.voip.CallEventCallbackAckTransaction;
+import com.android.server.telecom.voip.EndpointChangeTransaction;
+import com.android.server.telecom.voip.HoldCallTransaction;
 import com.android.server.telecom.voip.EndCallTransaction;
 import com.android.server.telecom.voip.HoldActiveCallForNewCallTransaction;
-import com.android.server.telecom.voip.HoldCallTransaction;
 import com.android.server.telecom.voip.ParallelTransaction;
 import com.android.server.telecom.voip.RequestFocusTransaction;
 import com.android.server.telecom.voip.SerialTransaction;
@@ -52,6 +54,7 @@ import java.util.ArrayList;
 import java.util.Hashtable;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 /**
  * Implements {@link android.telecom.CallEventCallback} and {@link android.telecom.CallControl}
@@ -186,7 +189,7 @@ public class TransactionalServiceWrapper implements
                 throws RemoteException {
             try {
                 Log.startSession("TSW.sA");
-                createTransactions(callId, callback, SET_ACTIVE, 0);
+                createTransactions(callId, callback, SET_ACTIVE);
             } finally {
                 Log.endSession();
             }
@@ -197,7 +200,7 @@ public class TransactionalServiceWrapper implements
                 throws RemoteException {
             try {
                 Log.startSession("TSW.sI");
-                createTransactions(callId, callback, SET_INACTIVE, 0);
+                createTransactions(callId, callback, SET_INACTIVE);
             } finally {
                 Log.endSession();
             }
@@ -209,19 +212,7 @@ public class TransactionalServiceWrapper implements
                 throws RemoteException {
             try {
                 Log.startSession("TSW.d");
-                createTransactions(callId, callback, DISCONNECT, disconnectCause.getCode());
-            } finally {
-                Log.endSession();
-            }
-        }
-
-        @Override
-        public void rejectCall(String callId, android.os.ResultReceiver callback)
-                throws RemoteException {
-            try {
-                Log.startSession("TSW.rC");
-                createTransactions(callId, callback, REJECT,
-                        android.telecom.Call.REJECT_REASON_DECLINED);
+                createTransactions(callId, callback, DISCONNECT, disconnectCause);
             } finally {
                 Log.endSession();
             }
@@ -232,14 +223,14 @@ public class TransactionalServiceWrapper implements
                 throws RemoteException {
             try {
                 Log.startSession("TSW.sCS");
-                createTransactions(callId, callback, START_STREAMING, 0);
+                createTransactions(callId, callback, START_STREAMING);
             } finally {
                 Log.endSession();
             }
         }
 
         private void createTransactions(String callId, ResultReceiver callback, String action,
-                int code) {
+                Object... objects) {
             Log.d(TAG, "createTransactions: callId=" + callId);
             Call call = mTrackedCalls.get(callId);
             if (call != null) {
@@ -247,10 +238,9 @@ public class TransactionalServiceWrapper implements
                     case SET_ACTIVE:
                         addTransactionsToManager(createSetActiveTransactions(call), callback);
                         break;
-                    case REJECT:
                     case DISCONNECT:
                         addTransactionsToManager(new EndCallTransaction(mCallsManager,
-                                action.equals(DISCONNECT), code, call), callback);
+                                (DisconnectCause) objects[0], call), callback);
                         break;
                     case SET_INACTIVE:
                         addTransactionsToManager(
@@ -261,8 +251,26 @@ public class TransactionalServiceWrapper implements
                         break;
                 }
             } else {
-                Log.i(TAG, action + ": mCallsManager does not contain call with id=" + callId);
-                callback.send(CODE_CALL_IS_NOT_BEING_TRACKED, new Bundle());
+                Bundle exceptionBundle = new Bundle();
+                exceptionBundle.putParcelable(TRANSACTION_EXCEPTION_KEY,
+                        new CallException(TextUtils.formatSimple(
+                        "Telecom cannot process [%s] because the call with id=[%s] is no longer "
+                                + "being tracked. This is most likely a result of the call "
+                                + "already being disconnected and removed. Try re-adding the call"
+                                + " via TelecomManager#addCall", action, callId),
+                                CODE_CALL_IS_NOT_BEING_TRACKED));
+                callback.send(CODE_CALL_IS_NOT_BEING_TRACKED, exceptionBundle);
+            }
+        }
+
+        @Override
+        public void requestCallEndpointChange(CallEndpoint endpoint, ResultReceiver callback) {
+            try {
+                Log.startSession("TSW.rCEC");
+                addTransactionsToManager(new EndpointChangeTransaction(endpoint, mCallsManager),
+                        callback);
+            } finally {
+                Log.endSession();
             }
         }
     };
@@ -363,6 +371,7 @@ public class TransactionalServiceWrapper implements
                         public void onResult(VoipCallTransactionResult result) {
                             mCallsManager.markCallAsOnHold(call);
                         }
+
                         @Override
                         public void onError(CallException exception) {
                             Log.i(TAG, "onSetInactive: onError: with e=[%e]", exception);
@@ -459,11 +468,29 @@ public class TransactionalServiceWrapper implements
         }
     }
 
-    // TODO:: replace with onCallEndpointChanged when CLs are merged
-    public void onCallAudioStateChanged(Call call, CallAudioState callAudioState) {
+    public void onCallEndpointChanged(Call call, CallEndpoint endpoint) {
         if (call != null) {
             try {
-                mICallEventCallback.onCallAudioStateChanged(call.getId(), callAudioState);
+                mICallEventCallback.onCallEndpointChanged(call.getId(), endpoint);
+            } catch (RemoteException e) {
+            }
+        }
+    }
+
+    public void onAvailableCallEndpointsChanged(Call call, Set<CallEndpoint> endpoints) {
+        if (call != null) {
+            try {
+                mICallEventCallback.onAvailableCallEndpointsChanged(call.getId(),
+                        endpoints.stream().toList());
+            } catch (RemoteException e) {
+            }
+        }
+    }
+
+    public void onMuteStateChanged(Call call, boolean isMuted) {
+        if (call != null) {
+            try {
+                mICallEventCallback.onMuteStateChanged(call.getId(), isMuted);
             } catch (RemoteException e) {
             }
         }

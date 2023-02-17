@@ -59,7 +59,7 @@
     <string name="change_default_dialer_warning_message" msgid="8461963987376916114">"Deien aspektu guztiak erabili eta kontrolatu ahal izango ditu <xliff:g id="NEW_APP">%s</xliff:g> aplikazioak. Fidagarriak diren aplikazioak bakarrik erabili beharko lirateke Telefonoa aplikazio lehenetsi gisa."</string>
     <string name="change_default_call_screening_dialog_title" msgid="5365787219927262408">"Deiak iragazteko aplikazio lehenetsia <xliff:g id="NEW_APP">%s</xliff:g> izatea nahi duzu?"</string>
     <string name="change_default_call_screening_warning_message_for_disable_old_app" msgid="2039830033533243164">"Aurrerantzean, <xliff:g id="OLD_APP">%s</xliff:g> aplikazioak ezingo ditu iragazi deiak."</string>
-    <string name="change_default_call_screening_warning_message" msgid="9020537562292754269">"Kontaktuetan gordeta ez dituzun deitzaileei buruzko informazioa ikusteko eta dei horiek blokeatzeko gai izango da <xliff:g id="NEW_APP">%s</xliff:g>. Aplikazio fidagarriak soilik ezarri beharko lirateke deiak iragazteko aplikazio lehenetsi gisa."</string>
+    <string name="change_default_call_screening_warning_message" msgid="9020537562292754269">"Kontaktuetan gordeta ez dauzkazun deitzaileei buruzko informazioa ikusteko eta dei horiek blokeatzeko gai izango da <xliff:g id="NEW_APP">%s</xliff:g>. Aplikazio fidagarriak soilik ezarri beharko lirateke deiak iragazteko aplikazio lehenetsi gisa."</string>
     <string name="change_default_call_screening_dialog_affirmative" msgid="7162433828280058647">"Ezarri lehenetsi gisa"</string>
     <string name="change_default_call_screening_dialog_negative" msgid="1839266125623106342">"Utzi"</string>
     <string name="blocked_numbers" msgid="8322134197039865180">"Blokeatutako zenbakiak"</string>
@@ -124,16 +124,10 @@
     <string name="toast_emergency_can_not_pull_call" msgid="9074229465338410869">"Ezin duzu hartu deirik larrialdi-dei bat abian den bitartean."</string>
     <string name="cancel" msgid="6733466216239934756">"Utzi"</string>
     <string name="back" msgid="6915955601805550206">"Atzera"</string>
-    <!-- no translation found for callendpoint_name_earpiece (7047285080319678594) -->
-    <skip />
-    <!-- no translation found for callendpoint_name_bluetooth (210210953208913172) -->
-    <skip />
-    <!-- no translation found for callendpoint_name_wiredheadset (6860787176412079742) -->
-    <skip />
-    <!-- no translation found for callendpoint_name_speaker (1971760468695323189) -->
-    <skip />
-    <!-- no translation found for callendpoint_name_streaming (2337595450408275576) -->
-    <skip />
-    <!-- no translation found for callendpoint_name_unknown (2199074708477193852) -->
-    <skip />
+    <string name="callendpoint_name_earpiece" msgid="7047285080319678594">"Aurikularrak"</string>
+    <string name="callendpoint_name_bluetooth" msgid="210210953208913172">"Bluetootha"</string>
+    <string name="callendpoint_name_wiredheadset" msgid="6860787176412079742">"Entzungailu kableduna"</string>
+    <string name="callendpoint_name_speaker" msgid="1971760468695323189">"Bozgorailua"</string>
+    <string name="callendpoint_name_streaming" msgid="2337595450408275576">"Kanpokoa"</string>
+    <string name="callendpoint_name_unknown" msgid="2199074708477193852">"Ezezaguna"</string>
 </resources>
