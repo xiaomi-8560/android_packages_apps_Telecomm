@@ -450,8 +450,6 @@ public class CallsManager extends Call.ListenerBase
 
     private boolean mCanAddCall = true;
 
-    private int mMaxNumberOfSimultaneouslyActiveSims = -1;
-
     private Runnable mStopTone;
 
     private LinkedList<HandlerThread> mGraphHandlerThreads;
@@ -735,8 +733,7 @@ public class CallsManager extends Call.ListenerBase
 
     @Override
     public void onFailedOutgoingCall(Call call, DisconnectCause disconnectCause) {
-        Log.v(this, "onFailedOutgoingCall, call: %s", call);
-
+        Log.i(this, "onFailedOutgoingCall for call %s", call);
         markCallAsRemoved(call);
     }
 
@@ -991,14 +988,15 @@ public class CallsManager extends Call.ListenerBase
 
     @Override
     public void onFailedIncomingCall(Call call) {
+        Log.i(this, "onFailedIncomingCall for call %s", call);
         setCallState(call, CallState.DISCONNECTED, "failed incoming call");
         call.removeListener(this);
     }
 
     @Override
     public void onSuccessfulUnknownCall(Call call, int callState) {
-        setCallState(call, callState, "successful unknown call");
         Log.i(this, "onSuccessfulUnknownCall for call %s", call);
+        setCallState(call, callState, "successful unknown call");
         addCall(call);
     }
 
@@ -3117,6 +3115,18 @@ public class CallsManager extends Call.ListenerBase
         return constructPossiblePhoneAccounts(handle, user, isVideo, isEmergency, false);
     }
 
+    // Returns whether the device is capable of 2 simultaneous active voice calls on different subs.
+    private boolean isDsdaCallingPossible() {
+        try {
+            return getTelephonyManager().getMaxNumberOfSimultaneouslyActiveSims() > 1
+                    || getTelephonyManager().getPhoneCapability()
+                           .getMaxActiveVoiceSubscriptions() > 1;
+        } catch (Exception e) {
+            Log.w(this, "exception in isDsdaCallingPossible(): ", e);
+            return false;
+        }
+    }
+
     public List<PhoneAccountHandle> constructPossiblePhoneAccounts(Uri handle, UserHandle user,
             boolean isVideo, boolean isEmergency, boolean isConference) {
 
@@ -3133,13 +3143,9 @@ public class CallsManager extends Call.ListenerBase
                         capabilities,
                         isEmergency ? 0 : PhoneAccount.CAPABILITY_EMERGENCY_CALLS_ONLY,
                         isEmergency);
-        if (mMaxNumberOfSimultaneouslyActiveSims < 0) {
-            mMaxNumberOfSimultaneouslyActiveSims =
-                    getTelephonyManager().getMaxNumberOfSimultaneouslyActiveSims();
-        }
         // Only one SIM PhoneAccount can be active at one time for DSDS. Only that SIM PhoneAccount
         // should be available if a call is already active on the SIM account.
-        if (mMaxNumberOfSimultaneouslyActiveSims == 1) {
+        if (!isDsdaCallingPossible()) {
             List<PhoneAccountHandle> simAccounts =
                     mPhoneAccountRegistrar.getSimPhoneAccountsOfCurrentUser();
             PhoneAccountHandle ongoingCallAccount = null;
