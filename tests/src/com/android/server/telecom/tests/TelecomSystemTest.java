@@ -66,7 +66,6 @@ import android.telecom.TelecomManager;
 import android.telecom.VideoProfile;
 import android.telephony.TelephonyManager;
 import android.telephony.TelephonyRegistryManager;
-import android.text.TextUtils;
 
 import com.android.internal.telecom.IInCallAdapter;
 import com.android.server.telecom.AsyncRingtonePlayer;
@@ -392,6 +391,7 @@ public class TelecomSystemTest extends TelecomTestCase {
                 handlerThread.quitSafely();
             }
             handlerThreads.clear();
+            mTelecomSystem.getCallsManager().getVoipCallMonitor().stopMonitor();
         }
         waitForHandlerAction(new Handler(Looper.getMainLooper()), TEST_TIMEOUT);
         waitForHandlerAction(mHandlerThread.getThreadHandler(), TEST_TIMEOUT);
@@ -761,7 +761,7 @@ public class TelecomSystemTest extends TelecomTestCase {
         final UserHandle userHandle = initiatingUser;
         Context localAppContext = mComponentContextFixture.getTestDouble().getApplicationContext();
         new UserCallIntentProcessor(localAppContext, userHandle).processIntent(
-                actionCallIntent, null, true /* hasCallAppOp*/, false /* isLocal */);
+                actionCallIntent, null, false, true /* hasCallAppOp*/, false /* isLocal */);
         // Wait for handler to start CallerInfo lookup.
         waitForHandlerAction(new Handler(Looper.getMainLooper()), TEST_TIMEOUT);
         // Send the CallerInfo lookup reply.
