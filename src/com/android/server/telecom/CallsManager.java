@@ -556,8 +556,8 @@ public class CallsManager extends Call.ListenerBase
             Executor asyncTaskExecutor,
             BlockedNumbersAdapter blockedNumbersAdapter,
             TransactionManager transactionManager,
-            EmergencyCallDiagnosticLogger emergencyCallDiagnosticLogger) {
-
+            EmergencyCallDiagnosticLogger emergencyCallDiagnosticLogger,
+            CallAudioCommunicationDeviceTracker communicationDeviceTracker) {
         mContext = context;
         mLock = lock;
         mPhoneNumberUtilsAdapter = phoneNumberUtilsAdapter;
@@ -587,7 +587,8 @@ public class CallsManager extends Call.ListenerBase
                         statusBarNotifier,
                         audioServiceFactory,
                         CallAudioRouteStateMachine.EARPIECE_AUTO_DETECT,
-                        asyncTaskExecutor
+                        asyncTaskExecutor,
+                        communicationDeviceTracker
                 );
         callAudioRouteStateMachine.initialize();
 
@@ -1405,8 +1406,7 @@ public class CallsManager extends Call.ListenerBase
         // set properties for transactional call
         if (extras.containsKey(TelecomManager.TRANSACTION_CALL_ID_KEY)) {
             call.setIsTransactionalCall(true);
-            call.setOwnerPid(extras.getInt(CallAttributes.CALLER_PID, -1));
-            extras.remove(CallAttributes.CALLER_PID);
+            call.setCallingPackageIdentity(extras);
             call.setConnectionCapabilities(
                     extras.getInt(CallAttributes.CALL_CAPABILITIES_KEY,
                             CallAttributes.SUPPORTS_SET_INACTIVE), true);
@@ -1717,8 +1717,7 @@ public class CallsManager extends Call.ListenerBase
 
             if (extras.containsKey(TelecomManager.TRANSACTION_CALL_ID_KEY)) {
                 call.setIsTransactionalCall(true);
-                call.setOwnerPid(extras.getInt(CallAttributes.CALLER_PID, -1));
-                extras.remove(CallAttributes.CALLER_PID);
+                call.setCallingPackageIdentity(extras);
                 call.setConnectionCapabilities(
                         extras.getInt(CallAttributes.CALL_CAPABILITIES_KEY,
                                 CallAttributes.SUPPORTS_SET_INACTIVE), true);
@@ -1982,7 +1981,7 @@ public class CallsManager extends Call.ListenerBase
                                         + " available accounts.");
                                 showErrorMessage(R.string.cant_call_due_to_no_supported_service);
                                 mListeners.forEach(l -> l.onCreateConnectionFailed(callToPlace));
-                                if (callToPlace.isEmergencyCall()){
+                                if (callToPlace.isEmergencyCall()) {
                                     mAnomalyReporter.reportAnomaly(
                                             EMERGENCY_CALL_ABORTED_NO_PHONE_ACCOUNTS_ERROR_UUID,
                                             EMERGENCY_CALL_ABORTED_NO_PHONE_ACCOUNTS_ERROR_MSG);
