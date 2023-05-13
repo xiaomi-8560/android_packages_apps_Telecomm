@@ -35,6 +35,7 @@ android_app {
     static_libs: [
         "androidx.annotation_annotation",
         "androidx.core_core",
+        "telecom_flags-lib",
     ],
     resource_dirs: ["res"],
     proto: {
@@ -54,6 +55,7 @@ android_test {
     name: "TelecomUnitTests",
     static_libs: [
         "android-ex-camera2",
+        "flag-junit",
         "guava",
         "mockito-target-extended",
         "androidx.test.rules",
@@ -64,6 +66,7 @@ android_test {
         "androidx.fragment_fragment",
         "androidx.test.ext.junit",
         "platform-compat-test-rules",
+        "telecom_flags-lib",
     ],
     srcs: [
         "tests/src/**/*.java",

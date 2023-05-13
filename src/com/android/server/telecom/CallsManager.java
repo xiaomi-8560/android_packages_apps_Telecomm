@@ -133,6 +133,7 @@ import com.android.server.telecom.callredirection.CallRedirectionProcessor;
 import com.android.server.telecom.components.ErrorDialogActivity;
 import com.android.server.telecom.components.TelecomBroadcastReceiver;
 import com.android.server.telecom.components.UserCallIntentProcessor;
+import com.android.server.telecom.flags.FeatureFlags;
 import com.android.server.telecom.stats.CallFailureCause;
 import com.android.server.telecom.ui.AudioProcessingNotification;
 import com.android.server.telecom.ui.CallRedirectionTimeoutDialogActivity;
@@ -606,7 +607,8 @@ public class CallsManager extends Call.ListenerBase
             TransactionManager transactionManager,
             EmergencyCallDiagnosticLogger emergencyCallDiagnosticLogger,
             CallAudioCommunicationDeviceTracker communicationDeviceTracker,
-            CallStreamingNotification callStreamingNotification) {
+            CallStreamingNotification callStreamingNotification,
+            FeatureFlags featureFlags) {
 
         mContext = context;
         mLock = lock;
@@ -672,7 +674,7 @@ public class CallsManager extends Call.ListenerBase
                 ringtoneFactory, systemVibrator,
                 new Ringer.VibrationEffectProxy(), mInCallController,
                 mContext.getSystemService(NotificationManager.class),
-                accessibilityManagerAdapter);
+                accessibilityManagerAdapter, featureFlags);
         mCallRecordingTonePlayer = new CallRecordingTonePlayer(mContext, audioManager,
                 mTimeoutsAdapter, mLock);
         mCallAudioManager = new CallAudioManager(callAudioRouteStateMachine,
