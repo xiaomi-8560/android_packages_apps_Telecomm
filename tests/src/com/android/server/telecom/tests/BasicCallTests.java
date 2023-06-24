@@ -39,10 +39,10 @@ import static org.mockito.Mockito.when;
 
 import android.content.Context;
 import android.content.IContentProvider;
-import android.content.pm.PackageManager;
-import android.media.AudioDeviceInfo;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.drawable.Icon;
+import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Binder;
@@ -651,8 +651,8 @@ public class BasicCallTests extends TelecomSystemTest {
                 .getCallAudioRouteStateMachine().getHandler(), TEST_TIMEOUT);
         ArgumentCaptor<AudioDeviceInfo> infoArgumentCaptor =
                 ArgumentCaptor.forClass(AudioDeviceInfo.class);
-        verify(audioManager, timeout(TEST_TIMEOUT)).setCommunicationDevice(
-                infoArgumentCaptor.capture());
+        verify(audioManager, timeout(TEST_TIMEOUT).atLeast(1))
+                .setCommunicationDevice(infoArgumentCaptor.capture());
         assertEquals(AudioDeviceInfo.TYPE_BUILTIN_SPEAKER, infoArgumentCaptor.getValue().getType());
         mInCallServiceFixtureX.mInCallAdapter.setAudioRoute(CallAudioState.ROUTE_EARPIECE, null);
         waitForHandlerAction(mTelecomSystem.getCallsManager().getCallAudioManager()
@@ -1339,7 +1339,6 @@ public class BasicCallTests extends TelecomSystemTest {
     public void testValidateStatusHintsImage_addExistingConnection() throws Exception {
         IdPair outgoing = startAndMakeActiveOutgoingCall("650-555-1214",
                 mPhoneAccountA0.getAccountHandle(), mConnectionServiceFixtureA);
-        Connection existingConnection = mConnectionServiceFixtureA.mLatestConnection;
 
         // Modify existing connection with StatusHints image exploit
         Icon icon = Icon.createWithContentUri("content://10@media/external/images/media/");

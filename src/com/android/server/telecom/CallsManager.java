@@ -140,8 +140,8 @@ import com.android.server.telecom.ui.ConfirmCallDialogActivity;
 import com.android.server.telecom.ui.DisconnectedCallNotifier;
 import com.android.server.telecom.ui.IncomingCallNotifier;
 import com.android.server.telecom.ui.ToastFactory;
-import com.android.server.telecom.voip.TransactionManager;
 import com.android.server.telecom.voip.VoipCallMonitor;
+import com.android.server.telecom.voip.TransactionManager;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -589,6 +589,7 @@ public class CallsManager extends Call.ListenerBase
             BlockedNumbersAdapter blockedNumbersAdapter,
             TransactionManager transactionManager,
             EmergencyCallDiagnosticLogger emergencyCallDiagnosticLogger,
+            CallAudioCommunicationDeviceTracker communicationDeviceTracker,
             CallStreamingNotification callStreamingNotification) {
 
         mContext = context;
@@ -620,7 +621,8 @@ public class CallsManager extends Call.ListenerBase
                         statusBarNotifier,
                         audioServiceFactory,
                         CallAudioRouteStateMachine.EARPIECE_AUTO_DETECT,
-                        asyncTaskExecutor
+                        asyncTaskExecutor,
+                        communicationDeviceTracker
                 );
         callAudioRouteStateMachine.initialize();
 
@@ -674,10 +676,10 @@ public class CallsManager extends Call.ListenerBase
         mClockProxy = clockProxy;
         mToastFactory = toastFactory;
         mRoleManagerAdapter = roleManagerAdapter;
+        mVoipCallMonitor = new VoipCallMonitor(mContext, mLock);
         mTransactionManager = transactionManager;
         mBlockedNumbersAdapter = blockedNumbersAdapter;
         mCallStreamingController = new CallStreamingController(mContext, mLock);
-        mVoipCallMonitor = new VoipCallMonitor(mContext, mLock);
         mCallStreamingNotification = callStreamingNotification;
 
         mListeners.add(mInCallWakeLockController);
@@ -2081,7 +2083,7 @@ public class CallsManager extends Call.ListenerBase
                                         + " available accounts.");
                                 showErrorMessage(R.string.cant_call_due_to_no_supported_service);
                                 mListeners.forEach(l -> l.onCreateConnectionFailed(callToPlace));
-                                if (callToPlace.isEmergencyCall()){
+                                if (callToPlace.isEmergencyCall()) {
                                     mAnomalyReporter.reportAnomaly(
                                             EMERGENCY_CALL_ABORTED_NO_PHONE_ACCOUNTS_ERROR_UUID,
                                             EMERGENCY_CALL_ABORTED_NO_PHONE_ACCOUNTS_ERROR_MSG);
@@ -2938,8 +2940,6 @@ public class CallsManager extends Call.ListenerBase
             call.answer(videoState);
         } else {
             // Hold or disconnect the active call and request call focus for the incoming call.
-            Call activeCall = (Call) mConnectionSvrFocusMgr.getCurrentFocusCall();
-            Log.d(this, "answerCall: Incoming call = %s Ongoing call %s", call, activeCall);
             holdActiveCallForNewCall(call);
             mConnectionSvrFocusMgr.requestFocus(
                     call,
