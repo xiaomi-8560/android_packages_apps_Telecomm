@@ -4573,6 +4573,7 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
     }
 
     public void setStartFailCause(CallFailureCause cause) {
+        Log.i(this, "setStartFailCause: cause = %s; callId = %s", cause, this.getId());
         mCallStateChangedAtomWriter.setStartFailCause(cause);
     }
 

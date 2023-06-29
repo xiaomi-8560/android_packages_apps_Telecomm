@@ -23,10 +23,10 @@ import android.app.AppOpsManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.graphics.drawable.Icon;
 import android.location.Location;
 import android.location.LocationManager;
 import android.location.LocationRequest;
-import android.graphics.drawable.Icon;
 import android.net.Uri;
 import android.os.Binder;
 import android.os.Bundle;
@@ -517,9 +517,11 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
             // Check status hints image for cross user access
             if (parcelableConference.getStatusHints() != null) {
                 Icon icon = parcelableConference.getStatusHints().getIcon();
-                parcelableConference.getStatusHints().setIcon(StatusHints.
-                        validateAccountIconUserBoundary(icon, callingUserHandle));
+                parcelableConference.getStatusHints().setIcon(StatusHints
+                        .validateAccountIconUserBoundary(icon, callingUserHandle));
             }
+
+            if (ConnectionServiceWrapper.this.mIsRemoteConnectionService) return;
 
             if (parcelableConference.getConnectElapsedTimeMillis() != 0
                     && mContext.checkCallingOrSelfPermission(MODIFY_PHONE_STATE)
@@ -935,6 +937,9 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
         public void addExistingConnection(String callId, ParcelableConnection connection,
                 Session.Info sessionInfo) {
             Log.startSession(sessionInfo, "CSW.aEC", mPackageAbbreviation);
+
+            if (ConnectionServiceWrapper.this.mIsRemoteConnectionService) return;
+
             UserHandle userHandle = Binder.getCallingUserHandle();
             // Check that the Calling Package matches PhoneAccountHandle's Component Package
             PhoneAccountHandle callingPhoneAccountHandle = connection.getPhoneAccount();
@@ -993,6 +998,12 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
                             connectIdToCheck = callId;
                         }
 
+                        // Check status hints image for cross user access
+                        if (connection.getStatusHints() != null) {
+                            Icon icon = connection.getStatusHints().getIcon();
+                            connection.getStatusHints().setIcon(StatusHints.
+                                    validateAccountIconUserBoundary(icon, userHandle));
+                        }
                         // Handle the case where an existing connection was added by Telephony via
                         // a connection manager.  The remote connection service API does not include
                         // the ability to specify a parent connection when adding an existing
@@ -1031,14 +1042,6 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
                                     connection.getCallDirection(),
                                     connection.getCallerNumberVerificationStatus());
                         }
-
-                        // Check status hints image for cross user access
-                        if (connection.getStatusHints() != null) {
-                            Icon icon = connection.getStatusHints().getIcon();
-                            connection.getStatusHints().setIcon(StatusHints.
-                                    validateAccountIconUserBoundary(icon, userHandle));
-                        }
-
                         // Check to see if this Connection has already been added.
                         Call alreadyAddedConnection = mCallsManager
                                 .getAlreadyAddedConnection(connectIdToCheck);
@@ -1351,6 +1354,7 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
     private final CallsManager mCallsManager;
     private final AppOpsManager mAppOpsManager;
     private final Context mContext;
+    public boolean mIsRemoteConnectionService = false;
 
     private ConnectionServiceFocusManager.ConnectionServiceFocusListener mConnSvrFocusListener;
 
@@ -2542,13 +2546,13 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
     private void logIncoming(String msg, Object... params) {
         // Keep these as debug; the incoming logging is traced on a package level through the
         // session logging.
-        Log.d(this, "CS -> TC[" + Log.getPackageAbbreviation(mComponentName) + "]: "
-                + msg, params);
+        Log.d(this, "CS -> TC[" + Log.getPackageAbbreviation(mComponentName) + "]:"
+                + " isRCS = " + this.mIsRemoteConnectionService + ": " + msg, params);
     }
 
     private void logOutgoing(String msg, Object... params) {
-        Log.d(this, "TC -> CS[" + Log.getPackageAbbreviation(mComponentName) + "]: "
-                + msg, params);
+        Log.d(this, "TC -> CS[" + Log.getPackageAbbreviation(mComponentName) + "]:"
+                + " isRCS = " + this.mIsRemoteConnectionService + ": " + msg, params);
     }
 
     private void queryRemoteConnectionServices(final UserHandle userHandle,
@@ -2575,6 +2579,7 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
             ConnectionServiceWrapper service = mConnectionServiceRepository.getService(
                     handle.getComponentName(), handle.getUserHandle());
             if (service != null && service != this) {
+                service.mIsRemoteConnectionService = true;
                 simServices.add(service);
             } else {
                 // This is unexpected, normally PhoneAccounts with CAPABILITY_CALL_PROVIDER are not
