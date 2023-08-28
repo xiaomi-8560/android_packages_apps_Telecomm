@@ -1277,7 +1277,13 @@ public class CallAudioRouteStateMachine extends StateMachine {
                     // Expected, since we just transitioned here
                     return HANDLED;
                 case SPEAKER_OFF:
-                    sendInternalMessage(SWITCH_BASELINE_ROUTE, INCLUDE_BLUETOOTH_IN_BASELINE);
+                    // Check if we already requested to connect to other devices and just waiting
+                    // for their response. In some cases, this SPEAKER_OFF message may come in
+                    // before the response, we can just ignore the message here to not re-evaluate
+                    // the baseline route incorrectly
+                    if (!mBluetoothRouteManager.isBluetoothAudioConnectedOrPending()) {
+                        sendInternalMessage(SWITCH_BASELINE_ROUTE, INCLUDE_BLUETOOTH_IN_BASELINE);
+                    }
                     return HANDLED;
                 case SWITCH_FOCUS:
                     if (msg.arg1 == NO_FOCUS) {
@@ -1813,17 +1819,15 @@ public class CallAudioRouteStateMachine extends StateMachine {
         final boolean hasAnyCalls = mCallsManager.hasAnyCalls();
         // These APIs are all via two-way binder calls so can potentially block Telecom.  Since none
         // of this has to happen in the Telecom lock we'll offload it to the async executor.
-        mAsyncTaskExecutor.execute(() -> {
-            boolean speakerOn = false;
-            if (on) {
-                speakerOn = mCommunicationDeviceTracker.setCommunicationDevice(
-                        AudioDeviceInfo.TYPE_BUILTIN_SPEAKER, null);
-            } else {
-                mCommunicationDeviceTracker.clearCommunicationDevice(
-                        AudioDeviceInfo.TYPE_BUILTIN_SPEAKER);
-            }
-            mStatusBarNotifier.notifySpeakerphone(hasAnyCalls && speakerOn);
-        });
+        boolean speakerOn = false;
+        if (on) {
+            speakerOn = mCommunicationDeviceTracker.setCommunicationDevice(
+                    AudioDeviceInfo.TYPE_BUILTIN_SPEAKER, null);
+        } else {
+            mCommunicationDeviceTracker.clearCommunicationDevice(
+                    AudioDeviceInfo.TYPE_BUILTIN_SPEAKER);
+        }
+        mStatusBarNotifier.notifySpeakerphone(hasAnyCalls && speakerOn);
     }
 
     private void setBluetoothOn(String address) {

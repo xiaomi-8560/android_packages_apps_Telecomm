@@ -2212,6 +2212,39 @@ public class TelecomServiceImpl {
         }
 
         /**
+         * A method intended for use in testing to query whether a particular non-ui inCallService
+         * is bound in a call.
+         * @param packageName of the service to query.
+         * @return whether it is bound or not.
+         */
+        @Override
+        public boolean isNonUiInCallServiceBound(String packageName) {
+            Log.startSession("TCI.iNUICSB");
+            try {
+                synchronized (mLock) {
+                    enforceShellOnly(Binder.getCallingUid(), "isNonUiInCallServiceBound");
+                    if (!(mContext.checkCallingOrSelfPermission(READ_PHONE_STATE)
+                            == PackageManager.PERMISSION_GRANTED) ||
+                            !(mContext.checkCallingOrSelfPermission(READ_PRIVILEGED_PHONE_STATE)
+                                    == PackageManager.PERMISSION_GRANTED)) {
+                        throw new SecurityException("isNonUiInCallServiceBound requires the"
+                                + " READ_PHONE_STATE or READ_PRIVILEGED_PHONE_STATE permission");
+                    }
+                    long token = Binder.clearCallingIdentity();
+                    try {
+                        return mCallsManager
+                                .getInCallController()
+                                .isNonUiInCallServiceBound(packageName);
+                    } finally {
+                        Binder.restoreCallingIdentity(token);
+                    }
+                }
+            } finally {
+                Log.endSession();
+            }
+        }
+
+        /**
          * A method intended for use in testing to reset car mode at all priorities.
          *
          * Runs during setup to avoid cascading failures from failing car mode CTS.
@@ -2707,6 +2740,7 @@ public class TelecomServiceImpl {
         int packageUid = -1;
         int callingUid = Binder.getCallingUid();
         PackageManager pm;
+        long token = Binder.clearCallingIdentity();
         try{
             pm = mContext.createContextAsUser(
                     UserHandle.getUserHandleForUid(callingUid), 0).getPackageManager();
@@ -2715,6 +2749,8 @@ public class TelecomServiceImpl {
             Log.i(this, "callingUidMatchesPackageManagerRecords:"
                             + " createContextAsUser hit exception=[%s]", e.toString());
             return false;
+        } finally {
+            Binder.restoreCallingIdentity(token);
         }
         if (pm != null) {
             try {
