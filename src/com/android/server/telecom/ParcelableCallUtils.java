@@ -158,6 +158,10 @@ public class ParcelableCallUtils {
             properties |= android.telecom.Call.Details.PROPERTY_VOIP_AUDIO_MODE;
         }
 
+        if (call.isTransactionalCall()) {
+            properties |= android.telecom.Call.Details.PROPERTY_IS_TRANSACTIONAL;
+        }
+
         if (call.isRespondViaSmsCapable()) {
             capabilities |= android.telecom.Call.Details.CAPABILITY_RESPOND_VIA_TEXT;
         }
