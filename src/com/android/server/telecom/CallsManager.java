@@ -475,6 +475,7 @@ public class CallsManager extends Call.ListenerBase
     private final TransactionManager mTransactionManager;
     private final UserManager mUserManager;
     private final CallStreamingNotification mCallStreamingNotification;
+    private final FeatureFlags mFeatureFlags;
 
     private final ConnectionServiceFocusManager.CallsManagerRequester mRequester =
             new ConnectionServiceFocusManager.CallsManagerRequester() {
@@ -701,6 +702,7 @@ public class CallsManager extends Call.ListenerBase
         mBlockedNumbersAdapter = blockedNumbersAdapter;
         mCallStreamingController = new CallStreamingController(mContext, mLock);
         mCallStreamingNotification = callStreamingNotification;
+        mFeatureFlags = featureFlags;
 
         mListeners.add(mInCallController);
         mListeners.add(mInCallWakeLockController);
