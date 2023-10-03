@@ -2639,7 +2639,8 @@ public class TelecomServiceImpl {
             }
 
             if (videoState == DEFAULT_VIDEO_STATE || !isValidAcceptVideoState(videoState)) {
-                videoState = call.getVideoState();
+                videoState = call.isVideoCrsForVoLteCall()
+                        ? VideoProfile.STATE_AUDIO_ONLY : call.getVideoState();
             }
             mCallsManager.answerCall(call, videoState);
         }
