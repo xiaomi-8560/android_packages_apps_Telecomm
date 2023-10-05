@@ -2424,6 +2424,7 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
         BindCallback callback = new BindCallback() {
             @Override
             public void onSuccess() {
+                if (!isServiceValid("connectionServiceFocusLost")) return;
                 if (mServiceInterface != null) {
                     try {
                         mServiceInterface.connectionServiceFocusLost(
@@ -2447,6 +2448,7 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
         BindCallback callback = new BindCallback() {
             @Override
             public void onSuccess() {
+                if (!isServiceValid("connectionServiceFocusGained")) return;
                 if (mServiceInterface != null) {
                    try {
                        mServiceInterface.connectionServiceFocusGained(
