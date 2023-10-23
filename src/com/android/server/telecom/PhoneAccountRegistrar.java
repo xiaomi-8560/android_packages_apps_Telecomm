@@ -1715,6 +1715,7 @@ public class PhoneAccountRegistrar {
             } else {
                 pw.println(defaultOutgoing);
             }
+            pw.println("defaultVoiceSubId: " + SubscriptionManager.getDefaultVoiceSubscriptionId());
             pw.println("simCallManager: " + getSimCallManager(mCurrentUserHandle));
             pw.println("phoneAccounts:");
             pw.increaseIndent();
