@@ -79,6 +79,7 @@ import com.android.internal.telecom.ICallEventCallback;
 import com.android.internal.telecom.ITelecomService;
 import com.android.internal.util.IndentingPrintWriter;
 import com.android.server.telecom.components.UserCallIntentProcessorFactory;
+import com.android.server.telecom.flags.FeatureFlags;
 import com.android.server.telecom.settings.BlockedNumbersActivity;
 import com.android.server.telecom.voip.IncomingCallTransaction;
 import com.android.server.telecom.voip.OutgoingCallTransaction;
@@ -88,6 +89,7 @@ import com.android.server.telecom.voip.VoipCallTransactionResult;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
+import java.lang.reflect.Method;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -1551,6 +1553,23 @@ public class TelecomServiceImpl {
                             }
                             mCallIntentProcessorAdapter.processIncomingCallIntent(
                                     mCallsManager, intent);
+                            if (mFeatureFlags.earlyBindingToIncallService()) {
+                                PhoneAccount account =
+                                        mPhoneAccountRegistrar.getPhoneAccountUnchecked(
+                                                phoneAccountHandle);
+                                Bundle accountExtra =
+                                        account == null ? new Bundle() : account.getExtras();
+                                PackageManager packageManager = mContext.getPackageManager();
+                                // Start binding to InCallServices for wearable calls that do not
+                                // require call filtering. This is to wake up default dialer earlier
+                                // to mitigate InCallService binding latency.
+                                if (packageManager.hasSystemFeature(PackageManager.FEATURE_WATCH)
+                                        && accountExtra != null && accountExtra.getBoolean(
+                                        PhoneAccount.EXTRA_SKIP_CALL_FILTERING,
+                                        false)) {
+                                    mCallsManager.getInCallController().bindToServices(null);
+                                }
+                            }
                         } finally {
                             Binder.restoreCallingIdentity(token);
                         }
@@ -1967,12 +1986,39 @@ public class TelecomServiceImpl {
                 pw.increaseIndent();
                 Analytics.dump(pw);
                 pw.decreaseIndent();
+
+                pw.println("Flag Configurations: ");
+                pw.increaseIndent();
+                reflectAndPrintFlagConfigs(pw);
+                pw.decreaseIndent();
             }
             if (isTimeLineView) {
                 Log.dumpEventsTimeline(pw);
             } else {
                 Log.dumpEvents(pw);
             }
+        }
+
+        /**
+         * Print all feature flag configurations that Telecom is using for debugging purposes.
+         */
+        private void reflectAndPrintFlagConfigs(IndentingPrintWriter pw) {
+
+            try {
+                // Look away, a forbidden technique (reflection) is being used to allow us to get
+                // all flag configs without having to add them manually to this method.
+                Method[] methods = FeatureFlags.class.getMethods();
+                if (methods.length == 0) {
+                    pw.println("NONE");
+                    return;
+                }
+                for (Method m : methods) {
+                    pw.println(m.getName() + "-> " + m.invoke(mFeatureFlags));
+                }
+            } catch (Exception e) {
+                pw.println("[ERROR]");
+            }
+
         }
 
         /**
@@ -2138,7 +2184,7 @@ public class TelecomServiceImpl {
                     try {
                         Log.i(this, "handleCallIntent: handling call intent");
                         mCallIntentProcessorAdapter.processOutgoingCallIntent(mContext,
-                                mCallsManager, intent, callingPackage);
+                                mCallsManager, intent, callingPackage, mFeatureFlags);
                     } finally {
                         Binder.restoreCallingIdentity(token);
                     }
@@ -2511,6 +2557,7 @@ public class TelecomServiceImpl {
     private final TelecomSystem.SyncRoot mLock;
     private TransactionManager mTransactionManager;
     private final TransactionalServiceRepository mTransactionalServiceRepository;
+    private final FeatureFlags mFeatureFlags;
 
     public TelecomServiceImpl(
             Context context,
@@ -2521,6 +2568,7 @@ public class TelecomServiceImpl {
             DefaultDialerCache defaultDialerCache,
             SubscriptionManagerAdapter subscriptionManagerAdapter,
             SettingsSecureAdapter settingsSecureAdapter,
+            FeatureFlags featureFlags,
             TelecomSystem.SyncRoot lock) {
         mContext = context;
         mAppOpsManager = (AppOpsManager) mContext.getSystemService(Context.APP_OPS_SERVICE);
@@ -2528,6 +2576,7 @@ public class TelecomServiceImpl {
         mPackageManager = mContext.getPackageManager();
 
         mCallsManager = callsManager;
+        mFeatureFlags = featureFlags;
         mLock = lock;
         mPhoneAccountRegistrar = phoneAccountRegistrar;
         mUserCallIntentProcessorFactory = userCallIntentProcessorFactory;
@@ -2607,7 +2656,8 @@ public class TelecomServiceImpl {
             }
 
             if (videoState == DEFAULT_VIDEO_STATE || !isValidAcceptVideoState(videoState)) {
-                videoState = call.getVideoState();
+                videoState = call.isVideoCrsForVoLteCall()
+                        ? VideoProfile.STATE_AUDIO_ONLY : call.getVideoState();
             }
             mCallsManager.answerCall(call, videoState);
         }

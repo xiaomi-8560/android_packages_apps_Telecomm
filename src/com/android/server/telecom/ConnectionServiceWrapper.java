@@ -68,6 +68,7 @@ import com.android.internal.telecom.RemoteServiceCallback;
 import com.android.internal.util.Preconditions;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -2423,6 +2424,7 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
         BindCallback callback = new BindCallback() {
             @Override
             public void onSuccess() {
+                if (!isServiceValid("connectionServiceFocusLost")) return;
                 if (mServiceInterface != null) {
                     try {
                         mServiceInterface.connectionServiceFocusLost(
@@ -2446,6 +2448,7 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
         BindCallback callback = new BindCallback() {
             @Override
             public void onSuccess() {
+                if (!isServiceValid("connectionServiceFocusGained")) return;
                 if (mServiceInterface != null) {
                    try {
                        mServiceInterface.connectionServiceFocusGained(
@@ -2528,12 +2531,11 @@ public class ConnectionServiceWrapper extends ServiceBinder implements
      */
     private void handleConnectionServiceDeath() {
         if (!mPendingResponses.isEmpty()) {
-            CreateConnectionResponse[] responses = mPendingResponses.values().toArray(
-                    new CreateConnectionResponse[mPendingResponses.values().size()]);
+            Collection<CreateConnectionResponse> responses = mPendingResponses.values();
             mPendingResponses.clear();
-            for (int i = 0; i < responses.length; i++) {
-                responses[i].handleCreateConnectionFailure(
-                        new DisconnectCause(DisconnectCause.ERROR, "CS_DEATH"));
+            for (CreateConnectionResponse response : responses) {
+                response.handleCreateConnectionFailure(new DisconnectCause(DisconnectCause.ERROR,
+                        "CS_DEATH"));
             }
         }
         mCallIdMapper.clear();
