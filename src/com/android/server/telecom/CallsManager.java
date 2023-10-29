@@ -5813,9 +5813,10 @@ public class CallsManager extends Call.ListenerBase
             // We are going to place the new outgoing call, so disconnect any ongoing self-managed
             // calls which are ongoing at this time.
             disconnectSelfManagedCalls("outgoing call " + callId);
-
-            mPendingCallConfirm.complete(mPendingCall);
-            mPendingCallConfirm = null;
+            if (mPendingCallConfirm != null) {
+                mPendingCallConfirm.complete(mPendingCall);
+                mPendingCallConfirm = null;
+            }
             mPendingCall = null;
         }
     }
@@ -5834,8 +5835,10 @@ public class CallsManager extends Call.ListenerBase
             markCallAsDisconnected(mPendingCall, new DisconnectCause(DisconnectCause.CANCELED));
             markCallAsRemoved(mPendingCall);
             mPendingCall = null;
-            mPendingCallConfirm.complete(null);
-            mPendingCallConfirm = null;
+            if (mPendingCallConfirm != null) {
+                mPendingCallConfirm.complete(null);
+                mPendingCallConfirm = null;
+            }
         }
     }
 
