@@ -679,7 +679,7 @@ public class CallsManager extends Call.ListenerBase
                 mTimeoutsAdapter, mLock);
         mCallAudioManager = new CallAudioManager(callAudioRouteStateMachine,
                 this, callAudioModeStateMachineFactory.create(systemStateHelper,
-                (AudioManager) mContext.getSystemService(Context.AUDIO_SERVICE)),
+                (AudioManager) mContext.getSystemService(Context.AUDIO_SERVICE), featureFlags),
                 playerFactory, mRinger, new RingbackPlayer(playerFactory),
                 bluetoothStateReceiver, mDtmfLocalTonePlayer);
 
@@ -689,7 +689,7 @@ public class CallsManager extends Call.ListenerBase
         mProximitySensorManager = proximitySensorManagerFactory.create(context, this);
         mPhoneStateBroadcaster = new PhoneStateBroadcaster(this);
         mCallLogManager = new CallLogManager(context, phoneAccountRegistrar, mMissedCallNotifier,
-                mAnomalyReporter);
+                mAnomalyReporter, featureFlags);
         mConnectionServiceRepository =
                 new ConnectionServiceRepository(mPhoneAccountRegistrar, mContext, mLock, this);
         mInCallWakeLockController = inCallWakeLockControllerFactory.create(context, this);
