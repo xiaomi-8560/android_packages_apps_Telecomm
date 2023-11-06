@@ -196,6 +196,7 @@ public class Ringer {
     private final InCallController mInCallController;
     private final VibrationEffectProxy mVibrationEffectProxy;
     private final boolean mIsHapticPlaybackSupportedByDevice;
+    private final FeatureFlags mFlags;
     /**
      * For unit testing purposes only; when set, {@link #startRinging(Call, boolean)} will complete
      * the future provided by the test using {@link #setBlockOnRingingFuture(CompletableFuture)}.
@@ -268,6 +269,7 @@ public class Ringer {
 
         mIsHapticPlaybackSupportedByDevice =
                 mSystemSettingsUtil.isHapticPlaybackSupported(mContext);
+        mFlags = featureFlags;
     }
 
     @VisibleForTesting
@@ -928,14 +930,21 @@ public class Ringer {
             Log.i(this, "shouldRingForContact: returning computation from DndCallFilter.");
             return !call.isCallSuppressedByDoNotDisturb();
         }
-        final Uri contactUri = call.getHandle();
-        final Bundle peopleExtras = new Bundle();
-        if (contactUri != null) {
-            ArrayList<Person> personList = new ArrayList<>();
-            personList.add(new Person.Builder().setUri(contactUri.toString()).build());
-            peopleExtras.putParcelableArrayList(Notification.EXTRA_PEOPLE_LIST, personList);
+        Uri contactUri = call.getHandle();
+        if (mFlags.telecomResolveHiddenDependencies()) {
+            if (contactUri == null) {
+                contactUri = Uri.EMPTY;
+            }
+            return mNotificationManager.matchesCallFilter(contactUri);
+        } else {
+            final Bundle peopleExtras = new Bundle();
+            if (contactUri != null) {
+                ArrayList<Person> personList = new ArrayList<>();
+                personList.add(new Person.Builder().setUri(contactUri.toString()).build());
+                peopleExtras.putParcelableArrayList(Notification.EXTRA_PEOPLE_LIST, personList);
+            }
+            return mNotificationManager.matchesCallFilter(peopleExtras);
         }
-        return mNotificationManager.matchesCallFilter(peopleExtras);
     }
 
     private boolean hasExternalRinger(Call foregroundCall) {

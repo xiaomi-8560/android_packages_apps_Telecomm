@@ -16,6 +16,7 @@
 
 package com.android.server.telecom.tests;
 
+import com.android.server.telecom.flags.FeatureFlags;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Multimap;
 
@@ -57,6 +58,7 @@ import android.location.CountryDetector;
 import android.location.LocationManager;
 import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
+import android.net.Uri;
 import android.os.BugreportManager;
 import android.os.Bundle;
 import android.os.DropBoxManager;
@@ -413,6 +415,11 @@ public class ComponentContextFixture implements TestFixture<Context> {
         }
 
         @Override
+        public void sendBroadcastAsUser(Intent intent, UserHandle user, String receiverPermission) {
+            // Override so that this can be verified via spy.
+        }
+
+        @Override
         public void sendBroadcastAsUser(Intent intent, UserHandle user, String receiverPermission,
                 Bundle options) {
             // Override so that this can be verified via spy.
@@ -627,8 +634,9 @@ public class ComponentContextFixture implements TestFixture<Context> {
 
     private TelecomManager mTelecomManager = mock(TelecomManager.class);
 
-    public ComponentContextFixture() {
+    public ComponentContextFixture(FeatureFlags featureFlags) {
         MockitoAnnotations.initMocks(this);
+        when(featureFlags.telecomResolveHiddenDependencies()).thenReturn(true);
         when(mResources.getConfiguration()).thenReturn(mResourceConfiguration);
         when(mResources.getString(anyInt())).thenReturn("");
         when(mResources.getStringArray(anyInt())).thenReturn(new String[0]);
@@ -711,7 +719,7 @@ public class ComponentContextFixture implements TestFixture<Context> {
             }
         }).when(mAppOpsManager).checkPackage(anyInt(), anyString());
 
-        when(mNotificationManager.matchesCallFilter(any(Bundle.class))).thenReturn(true);
+        when(mNotificationManager.matchesCallFilter(any(Uri.class))).thenReturn(true);
 
         when(mCarrierConfigManager.getConfig()).thenReturn(new PersistableBundle());
         when(mCarrierConfigManager.getConfigForSubId(anyInt())).thenReturn(new PersistableBundle());
@@ -773,6 +781,8 @@ public class ComponentContextFixture implements TestFixture<Context> {
         when(mPackageManager.getPackagesForUid(eq(uid))).thenReturn(new String[] {
                 componentName.getPackageName() });
         when(mPackageManager.checkPermission(eq(Manifest.permission.CONTROL_INCALL_EXPERIENCE),
+                eq(componentName.getPackageName()))).thenReturn(PackageManager.PERMISSION_GRANTED);
+        when(mPackageManager.checkPermission(eq(Manifest.permission.INTERACT_ACROSS_USERS),
                 eq(componentName.getPackageName()))).thenReturn(PackageManager.PERMISSION_GRANTED);
         when(mPermissionCheckerManager.checkPermission(
                 eq(Manifest.permission.CONTROL_INCALL_EXPERIENCE),
