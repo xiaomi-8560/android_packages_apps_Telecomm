@@ -16,50 +16,6 @@
 
 package com.android.server.telecom.tests;
 
-import android.bluetooth.BluetoothDevice;
-import android.content.BroadcastReceiver;
-import android.content.Context;
-import android.content.Intent;
-import android.content.IntentFilter;
-import android.content.pm.PackageManager;
-import android.media.AudioDeviceInfo;
-import android.media.AudioManager;
-import android.media.IAudioService;
-import android.os.HandlerThread;
-import android.telecom.CallAudioState;
-import android.test.suitebuilder.annotation.MediumTest;
-import android.test.suitebuilder.annotation.SmallTest;
-
-import com.android.server.telecom.CallAudioCommunicationDeviceTracker;
-import com.android.server.telecom.bluetooth.BluetoothRouteManager;
-import com.android.server.telecom.Call;
-import com.android.server.telecom.CallAudioRouteStateMachine;
-import com.android.server.telecom.CallsManager;
-import com.android.server.telecom.ConnectionServiceWrapper;
-import com.android.server.telecom.CallAudioManager;
-import com.android.server.telecom.StatusBarNotifier;
-import com.android.server.telecom.TelecomSystem;
-import com.android.server.telecom.WiredHeadsetManager;
-
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.JUnit4;
-import org.mockito.ArgumentCaptor;
-import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
-import org.mockito.invocation.InvocationOnMock;
-import org.mockito.stubbing.Answer;
-
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -80,6 +36,49 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import android.bluetooth.BluetoothDevice;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.media.AudioDeviceInfo;
+import android.media.AudioManager;
+import android.media.IAudioService;
+import android.os.HandlerThread;
+import android.telecom.CallAudioState;
+import android.test.suitebuilder.annotation.MediumTest;
+import android.test.suitebuilder.annotation.SmallTest;
+
+import com.android.server.telecom.Call;
+import com.android.server.telecom.CallAudioCommunicationDeviceTracker;
+import com.android.server.telecom.CallAudioManager;
+import com.android.server.telecom.CallAudioRouteStateMachine;
+import com.android.server.telecom.CallsManager;
+import com.android.server.telecom.ConnectionServiceWrapper;
+import com.android.server.telecom.StatusBarNotifier;
+import com.android.server.telecom.TelecomSystem;
+import com.android.server.telecom.WiredHeadsetManager;
+import com.android.server.telecom.bluetooth.BluetoothRouteManager;
+
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.JUnit4;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
+import org.mockito.invocation.InvocationOnMock;
+import org.mockito.stubbing.Answer;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
 @RunWith(JUnit4.class)
 public class CallAudioRouteStateMachineTest extends TelecomTestCase {
 
@@ -99,6 +98,7 @@ public class CallAudioRouteStateMachineTest extends TelecomTestCase {
     @Mock Call fakeSelfManagedCall;
     @Mock Call fakeCall;
     @Mock CallAudioManager mockCallAudioManager;
+    @Mock BluetoothDevice mockWatchDevice;
 
     private CallAudioManager.AudioServiceFactory mAudioServiceFactory;
     private static final int TEST_TIMEOUT = 500;
@@ -137,9 +137,11 @@ public class CallAudioRouteStateMachineTest extends TelecomTestCase {
         when(fakeSelfManagedCall.isAlive()).thenReturn(true);
         when(fakeSelfManagedCall.getSupportedAudioRoutes()).thenReturn(CallAudioState.ROUTE_ALL);
         when(fakeSelfManagedCall.isSelfManaged()).thenReturn(true);
+        when(mFeatureFlags.transitRouteBeforeAudioDisconnectBt()).thenReturn(false);
 
         doNothing().when(mockConnectionServiceWrapper).onCallAudioStateChanged(any(Call.class),
                 any(CallAudioState.class));
+        when(mFeatureFlags.ignoreAutoRouteToWatchDevice()).thenReturn(false);
     }
 
     @Override
@@ -163,7 +165,8 @@ public class CallAudioRouteStateMachineTest extends TelecomTestCase {
                 CallAudioRouteStateMachine.EARPIECE_AUTO_DETECT,
                 mThreadHandler.getLooper(),
                 Runnable::run /** do async stuff sync for test purposes */,
-                mCommunicationDeviceTracker);
+                mCommunicationDeviceTracker,
+                mFeatureFlags);
 
         // Since we don't know if we're on a platform with an earpiece or not, all we can do
         // is ensure the stateMachine construction didn't fail.  But at least we exercised the
@@ -184,7 +187,8 @@ public class CallAudioRouteStateMachineTest extends TelecomTestCase {
                 CallAudioRouteStateMachine.EARPIECE_AUTO_DETECT,
                 mThreadHandler.getLooper(),
                 Runnable::run /** do async stuff sync for test purposes */,
-                mCommunicationDeviceTracker);
+                mCommunicationDeviceTracker,
+                mFeatureFlags);
         stateMachine.setCallAudioManager(mockCallAudioManager);
 
         Set<Call> trackedCalls = new HashSet<>(Arrays.asList(fakeCall, fakeSelfManagedCall));
@@ -231,7 +235,8 @@ public class CallAudioRouteStateMachineTest extends TelecomTestCase {
                 CallAudioRouteStateMachine.EARPIECE_AUTO_DETECT,
                 mThreadHandler.getLooper(),
                 Runnable::run /** do async stuff sync for test purposes */,
-                mCommunicationDeviceTracker);
+                mCommunicationDeviceTracker,
+                mFeatureFlags);
         stateMachine.setCallAudioManager(mockCallAudioManager);
 
         Set<Call> trackedCalls = new HashSet<>(Arrays.asList(fakeCall, fakeSelfManagedCall));
@@ -282,7 +287,8 @@ public class CallAudioRouteStateMachineTest extends TelecomTestCase {
                 CallAudioRouteStateMachine.EARPIECE_FORCE_ENABLED,
                 mThreadHandler.getLooper(),
                 Runnable::run /** do async stuff sync for test purposes */,
-                mCommunicationDeviceTracker);
+                mCommunicationDeviceTracker,
+                mFeatureFlags);
         stateMachine.setCallAudioManager(mockCallAudioManager);
         CallAudioState initState = new CallAudioState(false, CallAudioState.ROUTE_SPEAKER,
                 CallAudioState.ROUTE_EARPIECE | CallAudioState.ROUTE_SPEAKER);
@@ -328,7 +334,8 @@ public class CallAudioRouteStateMachineTest extends TelecomTestCase {
                 CallAudioRouteStateMachine.EARPIECE_FORCE_ENABLED,
                 mThreadHandler.getLooper(),
                 Runnable::run /** do async stuff sync for test purposes */,
-                mCommunicationDeviceTracker);
+                mCommunicationDeviceTracker,
+                mFeatureFlags);
 
         when(mockBluetoothRouteManager.isBluetoothAudioConnectedOrPending()).thenReturn(false);
         when(mockBluetoothRouteManager.isBluetoothAvailable()).thenReturn(true);
@@ -375,7 +382,8 @@ public class CallAudioRouteStateMachineTest extends TelecomTestCase {
                 CallAudioRouteStateMachine.EARPIECE_FORCE_ENABLED,
                 mThreadHandler.getLooper(),
                 Runnable::run /** do async stuff sync for test purposes */,
-                mCommunicationDeviceTracker);
+                mCommunicationDeviceTracker,
+                mFeatureFlags);
         stateMachine.setCallAudioManager(mockCallAudioManager);
 
         when(mockBluetoothRouteManager.isBluetoothAudioConnectedOrPending()).thenReturn(false);
@@ -421,7 +429,8 @@ public class CallAudioRouteStateMachineTest extends TelecomTestCase {
                 CallAudioRouteStateMachine.EARPIECE_FORCE_ENABLED,
                 mThreadHandler.getLooper(),
                 Runnable::run /** do async stuff sync for test purposes */,
-                mCommunicationDeviceTracker);
+                mCommunicationDeviceTracker,
+                mFeatureFlags);
         stateMachine.setCallAudioManager(mockCallAudioManager);
         Collection<BluetoothDevice> availableDevices = Collections.singleton(bluetoothDevice1);
 
@@ -501,7 +510,8 @@ public class CallAudioRouteStateMachineTest extends TelecomTestCase {
                 CallAudioRouteStateMachine.EARPIECE_FORCE_ENABLED,
                 mThreadHandler.getLooper(),
                 Runnable::run /** do async stuff sync for test purposes */,
-                mCommunicationDeviceTracker);
+                mCommunicationDeviceTracker,
+                mFeatureFlags);
         stateMachine.setCallAudioManager(mockCallAudioManager);
 
         when(mockBluetoothRouteManager.isBluetoothAudioConnectedOrPending()).thenReturn(false);
@@ -539,7 +549,8 @@ public class CallAudioRouteStateMachineTest extends TelecomTestCase {
                 CallAudioRouteStateMachine.EARPIECE_FORCE_ENABLED,
                 mThreadHandler.getLooper(),
                 Runnable::run /** do async stuff sync for test purposes */,
-                mCommunicationDeviceTracker);
+                mCommunicationDeviceTracker,
+                mFeatureFlags);
         stateMachine.setCallAudioManager(mockCallAudioManager);
         setInBandRing(false);
         when(mockBluetoothRouteManager.isBluetoothAudioConnectedOrPending()).thenReturn(false);
@@ -599,7 +610,8 @@ public class CallAudioRouteStateMachineTest extends TelecomTestCase {
                 CallAudioRouteStateMachine.EARPIECE_FORCE_ENABLED,
                 mThreadHandler.getLooper(),
                 Runnable::run /** do async stuff sync for test purposes */,
-                mCommunicationDeviceTracker);
+                mCommunicationDeviceTracker,
+                mFeatureFlags);
         stateMachine.setCallAudioManager(mockCallAudioManager);
         List<BluetoothDevice> availableDevices =
                 Arrays.asList(bluetoothDevice1, bluetoothDevice2, bluetoothDevice3);
@@ -635,7 +647,69 @@ public class CallAudioRouteStateMachineTest extends TelecomTestCase {
                 bluetoothDevice2,
                 availableDevices);
 
-        verifyNewSystemCallAudioState(initState, expectedEndState);
+        assertEquals(expectedEndState, stateMachine.getCurrentCallAudioState());
+    }
+
+    @SmallTest
+    @Test
+    public void testCallDisconnectedWhenAudioRoutedToBluetooth() {
+        CallAudioRouteStateMachine stateMachine = new CallAudioRouteStateMachine(
+                mContext,
+                mockCallsManager,
+                mockBluetoothRouteManager,
+                mockWiredHeadsetManager,
+                mockStatusBarNotifier,
+                mAudioServiceFactory,
+                CallAudioRouteStateMachine.EARPIECE_FORCE_ENABLED,
+                mThreadHandler.getLooper(),
+                Runnable::run /** do async stuff sync for test purposes */,
+                mCommunicationDeviceTracker,
+                mFeatureFlags);
+        stateMachine.setCallAudioManager(mockCallAudioManager);
+        List<BluetoothDevice> availableDevices = Arrays.asList(bluetoothDevice1);
+
+        when(mockAudioManager.isSpeakerphoneOn()).thenReturn(false);
+        when(mockBluetoothRouteManager.isBluetoothAudioConnectedOrPending()).thenReturn(false);
+        when(mockBluetoothRouteManager.isBluetoothAvailable()).thenReturn(true);
+        when(mockBluetoothRouteManager.getConnectedDevices()).thenReturn(availableDevices);
+        when(mockBluetoothRouteManager.isInbandRingingEnabled()).thenReturn(true);
+        when(mFeatureFlags.transitRouteBeforeAudioDisconnectBt()).thenReturn(true);
+        doAnswer(invocation -> {
+            when(mockBluetoothRouteManager.getBluetoothAudioConnectedDevice())
+                    .thenReturn(bluetoothDevice1);
+            stateMachine.sendMessageWithSessionInfo(CallAudioRouteStateMachine.BT_AUDIO_CONNECTED);
+            return null;
+        }).when(mockBluetoothRouteManager).connectBluetoothAudio(bluetoothDevice1.getAddress());
+        doAnswer(invocation -> {
+            when(mockBluetoothRouteManager.getBluetoothAudioConnectedDevice())
+                    .thenReturn(bluetoothDevice1);
+            stateMachine.sendMessageWithSessionInfo(
+                    CallAudioRouteStateMachine.BT_AUDIO_DISCONNECTED);
+            return null;
+        }).when(mockBluetoothRouteManager).disconnectAudio();
+
+        CallAudioState initState = new CallAudioState(false, CallAudioState.ROUTE_BLUETOOTH,
+                CallAudioState.ROUTE_EARPIECE | CallAudioState.ROUTE_BLUETOOTH, null,
+                availableDevices);
+        stateMachine.initialize(initState);
+
+        stateMachine.sendMessageWithSessionInfo(CallAudioRouteStateMachine.SWITCH_FOCUS,
+                CallAudioRouteStateMachine.ACTIVE_FOCUS);
+        waitForHandlerAction(stateMachine.getHandler(), TEST_TIMEOUT);
+
+        stateMachine.sendMessageWithSessionInfo(CallAudioRouteStateMachine.SWITCH_FOCUS,
+                CallAudioRouteStateMachine.NO_FOCUS, bluetoothDevice1.getAddress());
+        waitForHandlerAction(stateMachine.getHandler(), TEST_TIMEOUT);
+
+        verify(mockBluetoothRouteManager).disconnectAudio();
+        waitForHandlerAction(stateMachine.getHandler(), TEST_TIMEOUT);
+        CallAudioState expectedEndState = new CallAudioState(false,
+                CallAudioState.ROUTE_BLUETOOTH,
+                CallAudioState.ROUTE_EARPIECE | CallAudioState.ROUTE_BLUETOOTH,
+                bluetoothDevice1,
+                availableDevices);
+
+        assertEquals(expectedEndState, stateMachine.getCurrentCallAudioState());
     }
 
     @SmallTest
@@ -651,7 +725,8 @@ public class CallAudioRouteStateMachineTest extends TelecomTestCase {
                 CallAudioRouteStateMachine.EARPIECE_FORCE_ENABLED,
                 mThreadHandler.getLooper(),
                 Runnable::run /** do async stuff sync for test purposes */,
-                mCommunicationDeviceTracker);
+                mCommunicationDeviceTracker,
+                mFeatureFlags);
         stateMachine.setCallAudioManager(mockCallAudioManager);
         when(mockAudioManager.isSpeakerphoneOn()).thenReturn(false);
         CallAudioState initState = new CallAudioState(false, CallAudioState.ROUTE_SPEAKER,
@@ -684,7 +759,8 @@ public class CallAudioRouteStateMachineTest extends TelecomTestCase {
                 CallAudioRouteStateMachine.EARPIECE_FORCE_ENABLED,
                 mThreadHandler.getLooper(),
                 Runnable::run /** do async stuff sync for test purposes */,
-                mCommunicationDeviceTracker);
+                mCommunicationDeviceTracker,
+                mFeatureFlags);
         stateMachine.setCallAudioManager(mockCallAudioManager);
 
         when(mockAudioManager.isSpeakerphoneOn()).thenReturn(false);
@@ -720,7 +796,8 @@ public class CallAudioRouteStateMachineTest extends TelecomTestCase {
                 CallAudioRouteStateMachine.EARPIECE_FORCE_ENABLED,
                 mThreadHandler.getLooper(),
                 Runnable::run /** do async stuff sync for test purposes */,
-                mCommunicationDeviceTracker);
+                mCommunicationDeviceTracker,
+                mFeatureFlags);
         stateMachine.setCallAudioManager(mockCallAudioManager);
         List<BluetoothDevice> availableDevices =
                 Arrays.asList(bluetoothDevice1, bluetoothDevice2);
@@ -774,7 +851,8 @@ public class CallAudioRouteStateMachineTest extends TelecomTestCase {
                 CallAudioRouteStateMachine.EARPIECE_FORCE_ENABLED,
                 mThreadHandler.getLooper(),
                 Runnable::run /** do async stuff sync for test purposes */,
-                mCommunicationDeviceTracker);
+                mCommunicationDeviceTracker,
+                mFeatureFlags);
         stateMachine.setCallAudioManager(mockCallAudioManager);
 
         AudioDeviceInfo earpiece = mock(AudioDeviceInfo.class);
@@ -842,7 +920,8 @@ public class CallAudioRouteStateMachineTest extends TelecomTestCase {
                 CallAudioRouteStateMachine.EARPIECE_FORCE_ENABLED,
                 mThreadHandler.getLooper(),
                 Runnable::run /** do async stuff sync for test purposes */,
-                mCommunicationDeviceTracker);
+                mCommunicationDeviceTracker,
+                mFeatureFlags);
         stateMachine.setCallAudioManager(mockCallAudioManager);
 
         // Start the route in quiescent and ensure that a switch to ACTIVE_FOCUS transitions to
@@ -947,7 +1026,8 @@ public class CallAudioRouteStateMachineTest extends TelecomTestCase {
                 CallAudioRouteStateMachine.EARPIECE_FORCE_ENABLED,
                 mThreadHandler.getLooper(),
                 Runnable::run /** do async stuff sync for test purposes */,
-                mCommunicationDeviceTracker);
+                mCommunicationDeviceTracker,
+                mFeatureFlags);
         stateMachine.initialize();
         assertEquals(expectedState, stateMachine.getCurrentCallAudioState());
     }
@@ -965,7 +1045,8 @@ public class CallAudioRouteStateMachineTest extends TelecomTestCase {
                 CallAudioRouteStateMachine.EARPIECE_FORCE_ENABLED,
                 mThreadHandler.getLooper(),
                 Runnable::run /** do async stuff sync for test purposes */,
-                mCommunicationDeviceTracker);
+                mCommunicationDeviceTracker,
+                mFeatureFlags);
         stateMachine.setCallAudioManager(mockCallAudioManager);
 
         CallAudioState initState = new CallAudioState(false, CallAudioState.ROUTE_EARPIECE,
@@ -1002,7 +1083,8 @@ public class CallAudioRouteStateMachineTest extends TelecomTestCase {
                 CallAudioRouteStateMachine.EARPIECE_FORCE_ENABLED,
                 mThreadHandler.getLooper(),
                 Runnable::run /** do async stuff sync for test purposes */,
-                mCommunicationDeviceTracker);
+                mCommunicationDeviceTracker,
+                mFeatureFlags);
         stateMachine.setCallAudioManager(mockCallAudioManager);
 
         CallAudioState initState = new CallAudioState(false, CallAudioState.ROUTE_SPEAKER,
@@ -1027,6 +1109,73 @@ public class CallAudioRouteStateMachineTest extends TelecomTestCase {
         assertEquals(expectedState, stateMachine.getCurrentCallAudioState());
     }
 
+    @MediumTest
+    @Test
+    public void testIgnoreImplicitBTSwitchWhenDeviceIsWatch() {
+        when(mFeatureFlags.ignoreAutoRouteToWatchDevice()).thenReturn(true);
+        CallAudioRouteStateMachine stateMachine = new CallAudioRouteStateMachine(
+                mContext,
+                mockCallsManager,
+                mockBluetoothRouteManager,
+                mockWiredHeadsetManager,
+                mockStatusBarNotifier,
+                mAudioServiceFactory,
+                CallAudioRouteStateMachine.EARPIECE_FORCE_ENABLED,
+                mThreadHandler.getLooper(),
+                Runnable::run /** do async stuff sync for test purposes */,
+                mCommunicationDeviceTracker,
+                mFeatureFlags);
+        stateMachine.setCallAudioManager(mockCallAudioManager);
+
+        AudioDeviceInfo headset = mock(AudioDeviceInfo.class);
+        when(headset.getType()).thenReturn(AudioDeviceInfo.TYPE_WIRED_HEADSET);
+        when(headset.getAddress()).thenReturn("");
+        List<AudioDeviceInfo> devices = new ArrayList<>();
+        devices.add(headset);
+
+        when(mockAudioManager.getAvailableCommunicationDevices())
+                .thenReturn(devices);
+        when(mockAudioManager.setCommunicationDevice(eq(headset)))
+                .thenReturn(true);
+        when(mockAudioManager.getCommunicationDevice()).thenReturn(headset);
+
+        CallAudioState initState = new CallAudioState(false,
+                CallAudioState.ROUTE_WIRED_HEADSET, CallAudioState.ROUTE_WIRED_HEADSET
+                | CallAudioState.ROUTE_EARPIECE | CallAudioState.ROUTE_BLUETOOTH);
+        stateMachine.initialize(initState);
+
+        // Switch to active
+        stateMachine.sendMessageWithSessionInfo(CallAudioRouteStateMachine.SWITCH_FOCUS,
+                CallAudioRouteStateMachine.ACTIVE_FOCUS);
+        waitForHandlerAction(stateMachine.getHandler(), TEST_TIMEOUT);
+
+        // Make sure that we've successfully switched to the active headset.
+        assertTrue(stateMachine.isInActiveState());
+        ArgumentCaptor<AudioDeviceInfo> infoArgumentCaptor = ArgumentCaptor.forClass(
+                AudioDeviceInfo.class);
+        verify(mockAudioManager).setCommunicationDevice(infoArgumentCaptor.capture());
+        assertEquals(AudioDeviceInfo.TYPE_WIRED_HEADSET, infoArgumentCaptor.getValue().getType());
+
+        // Set up watch device as only available BT device.
+        Collection<BluetoothDevice> availableDevices = Collections.singleton(mockWatchDevice);
+
+        when(mockBluetoothRouteManager.isBluetoothAudioConnectedOrPending()).thenReturn(false);
+        when(mockBluetoothRouteManager.isBluetoothAvailable()).thenReturn(true);
+        when(mockBluetoothRouteManager.getConnectedDevices()).thenReturn(availableDevices);
+        when(mockBluetoothRouteManager.isWatch(any(BluetoothDevice.class))).thenReturn(true);
+
+        // Disconnect wired headset to force switch to BT (verify that we ignore the implicit switch
+        // to BT when the watch is the only connected device and that we move into the next
+        // available route.
+        stateMachine.sendMessageWithSessionInfo(
+                CallAudioRouteStateMachine.DISCONNECT_WIRED_HEADSET);
+        waitForHandlerAction(stateMachine.getHandler(), TEST_TIMEOUT);
+        CallAudioState expectedState = new CallAudioState(false, CallAudioState.ROUTE_EARPIECE,
+                CallAudioState.ROUTE_EARPIECE | CallAudioState.ROUTE_BLUETOOTH,
+                null, availableDevices);
+        assertEquals(expectedState, stateMachine.getCurrentCallAudioState());
+    }
+
     private void initializationTestHelper(CallAudioState expectedState,
             int earpieceControl) {
         when(mockWiredHeadsetManager.isPluggedIn()).thenReturn(
@@ -1046,7 +1195,8 @@ public class CallAudioRouteStateMachineTest extends TelecomTestCase {
                 earpieceControl,
                 mThreadHandler.getLooper(),
                 Runnable::run /** do async stuff sync for test purposes */,
-                mCommunicationDeviceTracker);
+                mCommunicationDeviceTracker,
+                mFeatureFlags);
         stateMachine.initialize();
         assertEquals(expectedState, stateMachine.getCurrentCallAudioState());
     }
@@ -1098,7 +1248,8 @@ public class CallAudioRouteStateMachineTest extends TelecomTestCase {
                 CallAudioRouteStateMachine.EARPIECE_FORCE_ENABLED,
                 mThreadHandler.getLooper(),
                 Runnable::run /** do async stuff sync for test purposes */,
-                mCommunicationDeviceTracker);
+                mCommunicationDeviceTracker,
+                mFeatureFlags);
         stateMachine.setCallAudioManager(mockCallAudioManager);
 
         AudioDeviceInfo headset = mock(AudioDeviceInfo.class);

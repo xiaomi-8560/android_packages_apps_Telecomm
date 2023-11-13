@@ -640,7 +640,8 @@ public class CallsManager extends Call.ListenerBase
                         audioServiceFactory,
                         CallAudioRouteStateMachine.EARPIECE_AUTO_DETECT,
                         asyncCallAudioTaskExecutor,
-                        communicationDeviceTracker
+                        communicationDeviceTracker,
+                        featureFlags
                 );
         callAudioRouteStateMachine.initialize();
 
@@ -681,7 +682,7 @@ public class CallsManager extends Call.ListenerBase
                 this, callAudioModeStateMachineFactory.create(systemStateHelper,
                 (AudioManager) mContext.getSystemService(Context.AUDIO_SERVICE), featureFlags),
                 playerFactory, mRinger, new RingbackPlayer(playerFactory),
-                bluetoothStateReceiver, mDtmfLocalTonePlayer);
+                bluetoothStateReceiver, mDtmfLocalTonePlayer, featureFlags);
 
         mConnectionSvrFocusMgr = connectionServiceFocusManagerFactory.create(mRequester);
         mHeadsetMediaButton = headsetMediaButtonFactory.create(context, this, mLock);
