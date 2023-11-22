@@ -695,6 +695,7 @@ public class BluetoothRouteManager extends StateMachine {
         BluetoothClass deviceClass = device.getBluetoothClass();
         if (deviceClass != null && deviceClass.getDeviceClass()
                 == BluetoothClass.Device.WEARABLE_WRIST_WATCH) {
+            Log.i(this, "isWatch: bluetooth class component is a WEARABLE_WRIST_WATCH.");
             return true;
         }
 
@@ -705,6 +706,7 @@ public class BluetoothRouteManager extends StateMachine {
         }
         String deviceTypeStr = new String(deviceType);
         if (deviceTypeStr.equals(BluetoothDevice.DEVICE_TYPE_WATCH)) {
+            Log.i(this, "isWatch: bluetooth device type is DEVICE_TYPE_WATCH.");
             return true;
         }
 
