@@ -310,7 +310,7 @@ public class CallsManagerTest extends TelecomTestCase {
                 mCallEndpointController);
         when(mCallAudioRouteStateMachineFactory.create(any(), any(), any(), any(), any(), any(),
                 anyInt(), any(), any(), any())).thenReturn(mCallAudioRouteStateMachine);
-        when(mCallAudioModeStateMachineFactory.create(any(), any(), any()))
+        when(mCallAudioModeStateMachineFactory.create(any(), any(), any(), any()))
                 .thenReturn(mCallAudioModeStateMachine);
         when(mClockProxy.currentTimeMillis()).thenReturn(System.currentTimeMillis());
         when(mClockProxy.elapsedRealtime()).thenReturn(SystemClock.elapsedRealtime());
@@ -415,7 +415,8 @@ public class CallsManagerTest extends TelecomTestCase {
                 false /* shouldAttachToExistingConnection*/,
                 false /* isConference */,
                 mClockProxy,
-                mToastFactory);
+                mToastFactory,
+                mFeatureFlags);
         ongoingCall.setState(CallState.ACTIVE, "just cuz");
         return ongoingCall;
     }
@@ -2449,7 +2450,7 @@ public class CallsManagerTest extends TelecomTestCase {
 
         mCallsManager.onCallFilteringComplete(callSpy, result, false /* timeout */);
         verify(mMissedCallNotifier).showMissedCallNotification(
-                any(MissedCallNotifier.CallInfo.class));
+                any(MissedCallNotifier.CallInfo.class), /* uri= */ eq(null));
     }
 
     @Test
@@ -2559,6 +2560,7 @@ public class CallsManagerTest extends TelecomTestCase {
     @SmallTest
     @Test
     public void testOutgoingCallStateIsSetToAPreviousStateAndIgnored() {
+        when(mFeatureFlags.fixAudioFlickerForOutgoingCalls()).thenReturn(true);
         Call outgoingCall = addSpyCall(CallState.CONNECTING);
         mCallsManager.onSuccessfulOutgoingCall(outgoingCall, CallState.NEW);
         verify(outgoingCall, never()).setState(eq(CallState.NEW), any());
@@ -2571,6 +2573,7 @@ public class CallsManagerTest extends TelecomTestCase {
     @SmallTest
     @Test
     public void testOutgoingCallStateCanAvoidDialingAndGoStraightToActive() {
+        when(mFeatureFlags.fixAudioFlickerForOutgoingCalls()).thenReturn(true);
         Call outgoingCall = addSpyCall(CallState.CONNECTING);
         mCallsManager.onSuccessfulOutgoingCall(outgoingCall, CallState.ACTIVE);
         verify(outgoingCall, never()).setState(eq(CallState.DIALING), any());
@@ -2586,9 +2589,7 @@ public class CallsManagerTest extends TelecomTestCase {
                 WORK_HANDLE.getUserHandle(), service);
 
         UserManager um = mContext.getSystemService(UserManager.class);
-        UserHandle newUser = new UserHandle(11);
-        when(mCallsManager.getCurrentUserHandle()).thenReturn(newUser);
-        when(um.isUserAdmin(eq(newUser.getIdentifier()))).thenReturn(false);
+        when(um.isUserAdmin(anyInt())).thenReturn(false);
         when(um.isQuietModeEnabled(eq(WORK_HANDLE.getUserHandle()))).thenReturn(false);
         when(mPhoneAccountRegistrar.getPhoneAccountUnchecked(eq(WORK_HANDLE)))
                 .thenReturn(WORK_ACCOUNT);
@@ -2604,14 +2605,17 @@ public class CallsManagerTest extends TelecomTestCase {
     @Test
     public void testRejectIncomingCallOnPAHInactive_ProfilePaused() throws Exception {
         ConnectionServiceWrapper service = mock(ConnectionServiceWrapper.class);
-        doReturn(SIM_2_HANDLE.getComponentName()).when(service).getComponentName();
-        mCallsManager.addConnectionServiceRepositoryCache(SIM_2_HANDLE.getComponentName(),
-                SIM_2_HANDLE.getUserHandle(), service);
+        doReturn(WORK_HANDLE.getComponentName()).when(service).getComponentName();
+        mCallsManager.addConnectionServiceRepositoryCache(WORK_HANDLE.getComponentName(),
+                WORK_HANDLE.getUserHandle(), service);
 
         UserManager um = mContext.getSystemService(UserManager.class);
-        when(um.isQuietModeEnabled(eq(SIM_2_HANDLE.getUserHandle()))).thenReturn(true);
+        when(um.isUserAdmin(anyInt())).thenReturn(true);
+        when(um.isQuietModeEnabled(eq(WORK_HANDLE.getUserHandle()))).thenReturn(true);
+        when(mPhoneAccountRegistrar.getPhoneAccountUnchecked(eq(WORK_HANDLE)))
+                .thenReturn(WORK_ACCOUNT);
         Call newCall = mCallsManager.processIncomingCallIntent(
-                SIM_2_HANDLE, new Bundle(), false);
+                WORK_HANDLE, new Bundle(), false);
 
         verify(service, timeout(TEST_TIMEOUT)).createConnectionFailed(any());
         assertFalse(newCall.isInECBM());
@@ -2648,9 +2652,7 @@ public class CallsManagerTest extends TelecomTestCase {
         when(mEmergencyCallHelper.isLastOutgoingEmergencyCallPAH(eq(WORK_HANDLE)))
                 .thenReturn(true);
         UserManager um = mContext.getSystemService(UserManager.class);
-        UserHandle newUser = new UserHandle(11);
-        when(mCallsManager.getCurrentUserHandle()).thenReturn(newUser);
-        when(um.isUserAdmin(eq(newUser.getIdentifier()))).thenReturn(false);
+        when(um.isUserAdmin(anyInt())).thenReturn(false);
         when(um.isQuietModeEnabled(eq(WORK_HANDLE.getUserHandle()))).thenReturn(false);
         when(mPhoneAccountRegistrar.getPhoneAccountUnchecked(eq(WORK_HANDLE)))
                 .thenReturn(WORK_ACCOUNT);
@@ -2813,8 +2815,9 @@ public class CallsManagerTest extends TelecomTestCase {
     public void testQueryCurrentLocationCheckOnReceiveResult() throws Exception {
         ConnectionServiceWrapper service = new ConnectionServiceWrapper(
                 new ComponentName(mContext.getPackageName(),
-                        mContext.getPackageName().getClass().getName()),
-                null, mPhoneAccountRegistrar, mCallsManager, mContext, mLock, null);
+                        mContext.getPackageName().getClass().getName()), null,
+                        mPhoneAccountRegistrar, mCallsManager, mContext, mLock, null,
+                        mFeatureFlags);
 
         CompletableFuture<String> resultFuture = new CompletableFuture<>();
         try {
@@ -2839,7 +2842,8 @@ public class CallsManagerTest extends TelecomTestCase {
         mSetRlagsRule.enableFlags(Flags.FLAG_UNBIND_TIMEOUT_CONNECTIONS);
         ConnectionServiceWrapper service = new ConnectionServiceWrapper(
                 SIM_1_ACCOUNT.getAccountHandle().getComponentName(), null,
-                mPhoneAccountRegistrar, mCallsManager, mContext, mLock, null);
+                mPhoneAccountRegistrar, mCallsManager, mContext, mLock, null,
+                mFeatureFlags);
         TestScheduledExecutorService scheduledExecutorService = new TestScheduledExecutorService();
         service.setScheduledExecutorService(scheduledExecutorService);
         Call call = addSpyCall();
@@ -3427,7 +3431,8 @@ public class CallsManagerTest extends TelecomTestCase {
                 false /* shouldAttachToExistingConnection*/,
                 false /* isConference */,
                 mClockProxy,
-                mToastFactory);
+                mToastFactory,
+                mFeatureFlags);
         ongoingCall.setState(initialState, "just cuz");
         if (targetPhoneAccount == SELF_MANAGED_HANDLE
                 || targetPhoneAccount == SELF_MANAGED_2_HANDLE) {

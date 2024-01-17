@@ -170,6 +170,7 @@ public final class CallLogManager extends CallsManagerListenerBase {
      * Call was NOT in the "choose account" phase when disconnected
      * Call is NOT a conference call which had children (unless it was remotely hosted).
      * Call is NOT a child call from a conference which was remotely hosted.
+     * Call has NOT indicated it should be skipped for logging in its extras
      * Call is NOT simulating a single party conference.
      * Call was NOT explicitly canceled, except for disconnecting from a conference.
      * Call is NOT an external call or an external call on watch.
@@ -204,6 +205,11 @@ public final class CallLogManager extends CallsManagerListenerBase {
         // as they merge into the conference, so we should not log the conference itself.
         if (call.isConference() && !call.hadChildren() &&
                 !call.hasProperty(Connection.PROPERTY_REMOTELY_HOSTED)) {
+            return false;
+        }
+
+        if (mFeatureFlags.telecomSkipLogBasedOnExtra() && call.getExtras() != null
+                && call.getExtras().containsKey(TelecomManager.EXTRA_DO_NOT_LOG_CALL)) {
             return false;
         }
 
@@ -269,8 +275,13 @@ public final class CallLogManager extends CallsManagerListenerBase {
             logCall(call, type, new LogCallCompletedListener() {
                 @Override
                 public void onLogCompleted(@Nullable Uri uri) {
-                    mMissedCallNotifier.showMissedCallNotification(
-                            new MissedCallNotifier.CallInfo(call));
+                    if (mFeatureFlags.addCallUriForMissedCalls()){
+                        mMissedCallNotifier.showMissedCallNotification(
+                                new MissedCallNotifier.CallInfo(call), uri);
+                    } else {
+                        mMissedCallNotifier.showMissedCallNotification(
+                                new MissedCallNotifier.CallInfo(call), /* uri= */ null);
+                    }
                 }
             }, result);
         } else {

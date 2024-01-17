@@ -51,7 +51,6 @@ import android.os.vibrator.persistence.VibrationXmlParser;
 import android.provider.Settings;
 import android.telecom.Log;
 import android.telecom.TelecomManager;
-import android.text.TextUtils;
 import android.view.accessibility.AccessibilityManager;
 
 import com.android.internal.annotations.VisibleForTesting;
@@ -831,7 +830,7 @@ public class Ringer {
             Log.addEvent(call, LogUtils.Events.START_CALL_WAITING_TONE, reason);
             mCallWaitingCall = call;
             mCallWaitingPlayer =
-                    mPlayerFactory.createPlayer(InCallTonePlayer.TONE_CALL_WAITING);
+                    mPlayerFactory.createPlayer(call, InCallTonePlayer.TONE_CALL_WAITING);
             mCallWaitingPlayer.startTone();
         }
     }

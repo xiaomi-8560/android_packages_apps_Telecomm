@@ -44,8 +44,10 @@ public class CallAudioModeStateMachine extends StateMachine {
     private LocalLog mLocalLog = new LocalLog(20);
     public static class Factory {
         public CallAudioModeStateMachine create(SystemStateHelper systemStateHelper,
-                                                AudioManager am, FeatureFlags featureFlags) {
-            return new CallAudioModeStateMachine(systemStateHelper, am, featureFlags);
+                AudioManager am, FeatureFlags featureFlags,
+                CallAudioCommunicationDeviceTracker callAudioCommunicationDeviceTracker) {
+            return new CallAudioModeStateMachine(systemStateHelper, am,
+                    featureFlags, callAudioCommunicationDeviceTracker);
         }
     }
 
@@ -296,8 +298,20 @@ public class CallAudioModeStateMachine extends StateMachine {
             Log.i(LOG_TAG, "Audio focus entering UNFOCUSED state");
             mLocalLog.log("Enter UNFOCUSED");
             if (mIsInitialized) {
-                mCallAudioManager.setCallAudioRouteFocusState(CallAudioRouteStateMachine.NO_FOCUS);
-                mAudioManager.setMode(AudioManager.MODE_NORMAL);
+                // Clear any communication device that was requested previously.
+                if (mFeatureFlags.callAudioCommunicationDeviceRefactor()) {
+                    mCommunicationDeviceTracker.clearCommunicationDevice(mCommunicationDeviceTracker
+                            .getCurrentLocallyRequestedCommunicationDevice());
+                }
+                if (mFeatureFlags.setAudioModeBeforeAbandonFocus()) {
+                    mAudioManager.setMode(AudioManager.MODE_NORMAL);
+                    mCallAudioManager.setCallAudioRouteFocusState(
+                            CallAudioRouteStateMachine.NO_FOCUS);
+                } else {
+                    mCallAudioManager.setCallAudioRouteFocusState(
+                            CallAudioRouteStateMachine.NO_FOCUS);
+                    mAudioManager.setMode(AudioManager.MODE_NORMAL);
+                }
                 mLocalLog.log("Mode MODE_NORMAL");
                 mMostRecentMode = AudioManager.MODE_NORMAL;
                 // Don't release focus here -- wait until we get a signal that any other audio
@@ -905,12 +919,12 @@ public class CallAudioModeStateMachine extends StateMachine {
             mAudioManager.setMode(AudioManager.MODE_COMMUNICATION_REDIRECT);
             mMostRecentMode = AudioManager.MODE_NORMAL;
             mCallAudioManager.setCallAudioRouteFocusState(CallAudioRouteStateMachine.ACTIVE_FOCUS);
-            mCallAudioManager.getCallAudioRouteStateMachine().sendMessageWithSessionInfo(
+            mCallAudioManager.getCallAudioRouteAdapter().sendMessageWithSessionInfo(
                     CallAudioRouteStateMachine.STREAMING_FORCE_ENABLED);
         }
 
         private void preExit() {
-            mCallAudioManager.getCallAudioRouteStateMachine().sendMessageWithSessionInfo(
+            mCallAudioManager.getCallAudioRouteAdapter().sendMessageWithSessionInfo(
                     CallAudioRouteStateMachine.STREAMING_FORCE_DISABLED);
         }
 
@@ -1057,17 +1071,20 @@ public class CallAudioModeStateMachine extends StateMachine {
     private final SystemStateHelper mSystemStateHelper;
     private CallAudioManager mCallAudioManager;
     private FeatureFlags mFeatureFlags;
+    private CallAudioCommunicationDeviceTracker mCommunicationDeviceTracker;
 
     private int mMostRecentMode;
     private boolean mIsInitialized = false;
 
     public CallAudioModeStateMachine(SystemStateHelper systemStateHelper,
-            AudioManager audioManager, FeatureFlags featureFlags) {
+            AudioManager audioManager, FeatureFlags featureFlags,
+            CallAudioCommunicationDeviceTracker callAudioCommunicationDeviceTracker) {
         super(CallAudioModeStateMachine.class.getSimpleName());
         mAudioManager = audioManager;
         mSystemStateHelper = systemStateHelper;
         mMostRecentMode = AudioManager.MODE_NORMAL;
         mFeatureFlags = featureFlags;
+        mCommunicationDeviceTracker = callAudioCommunicationDeviceTracker;
 
         createStates();
     }
@@ -1076,12 +1093,14 @@ public class CallAudioModeStateMachine extends StateMachine {
      * Used for testing
      */
     public CallAudioModeStateMachine(SystemStateHelper systemStateHelper,
-            AudioManager audioManager, Looper looper, FeatureFlags featureFlags) {
+            AudioManager audioManager, Looper looper, FeatureFlags featureFlags,
+            CallAudioCommunicationDeviceTracker communicationDeviceTracker) {
         super(CallAudioModeStateMachine.class.getSimpleName(), looper);
         mAudioManager = audioManager;
         mSystemStateHelper = systemStateHelper;
         mMostRecentMode = AudioManager.MODE_NORMAL;
         mFeatureFlags = featureFlags;
+        mCommunicationDeviceTracker = communicationDeviceTracker;
 
         createStates();
     }

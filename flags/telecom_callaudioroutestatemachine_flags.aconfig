@@ -8,6 +8,13 @@ flag {
 }
 
 flag {
+  name: "use_refactored_audio_route_switching"
+  namespace: "telecom"
+  description: "Refactored audio routing"
+  bug: "306395598"
+}
+
+flag {
   name: "ensure_audio_mode_updates_on_foreground_call_change"
   namespace: "telecom"
   description: "Ensure that the audio mode is updated anytime the foreground call changes."
@@ -26,4 +33,32 @@ flag {
   namespace: "telecom"
   description: "Fix audio route transition issue on call disconnection when bt audio connected."
   bug: "306113816"
+}
+
+flag {
+  name: "call_audio_communication_device_refactor"
+  namespace: "telecom"
+  description: "Refactor call audio set/clear communication device and include unsupported routes."
+  bug: "308968392"
+}
+
+flag {
+  name: "communication_device_protected_by_lock"
+  namespace: "telecom"
+  description: "Protect set/clear communication device operation with lock to avoid race condition."
+  bug: "303001133"
+}
+
+flag {
+  name: "reset_mute_when_entering_quiescent_bt_route"
+  namespace: "telecom"
+  description: "Reset mute state when entering quiescent bluetooth route."
+  bug: "311313250"
+}
+
+flag {
+  name: "update_route_mask_when_bt_connected"
+  namespace: "telecom"
+  description: "Update supported route mask when Bluetooth devices audio connected."
+  bug: "301695370"
 }

@@ -38,6 +38,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import android.annotation.Nullable;
 import android.app.AppOpsManager;
 import android.bluetooth.BluetoothManager;
 import android.content.BroadcastReceiver;
@@ -121,7 +122,7 @@ import java.util.concurrent.TimeUnit;
 /**
  * Implements mocks and functionality required to implement telecom system tests.
  */
-public class TelecomSystemTest extends TelecomTestCase {
+public class TelecomSystemTest extends TelecomTestCase{
 
     private static final String CALLING_PACKAGE = TelecomSystemTest.class.getPackageName();
     static final int TEST_POLL_INTERVAL = 10;  // milliseconds
@@ -169,7 +170,7 @@ public class TelecomSystemTest extends TelecomTestCase {
         }
 
         @Override
-        public void showMissedCallNotification(CallInfo call) {
+        public void showMissedCallNotification(CallInfo call, @Nullable Uri uri) {
             missedCallsNotified.add(call);
         }
 
@@ -324,6 +325,20 @@ public class TelecomSystemTest extends TelecomTestCase {
                             PhoneAccount.CAPABILITY_CALL_PROVIDER |
                                     PhoneAccount.CAPABILITY_SIM_SUBSCRIPTION |
                                     PhoneAccount.CAPABILITY_PLACE_EMERGENCY_CALLS)
+                    .build();
+
+    final PhoneAccount mPhoneAccountMultiUser =
+            PhoneAccount.builder(
+                            new PhoneAccountHandle(
+                                    mConnectionServiceComponentNameA,
+                                    "id MU", UserHandle.of(12)),
+                            "Phone account service MU")
+                    .addSupportedUriScheme("tel")
+                    .setCapabilities(
+                            PhoneAccount.CAPABILITY_CALL_PROVIDER |
+                                    PhoneAccount.CAPABILITY_SIM_SUBSCRIPTION |
+                                    PhoneAccount.CAPABILITY_VIDEO_CALLING |
+                                    PhoneAccount.CAPABILITY_MULTI_USER)
                     .build();
 
     ConnectionServiceFixture mConnectionServiceFixtureA;
@@ -499,9 +514,11 @@ public class TelecomSystemTest extends TelecomTestCase {
         when(mRoleManagerAdapter.getCallCompanionApps()).thenReturn(Collections.emptyList());
         when(mRoleManagerAdapter.getDefaultCallScreeningApp(any(UserHandle.class)))
                 .thenReturn(null);
+        when(mFeatureFlags.useRefactoredAudioRouteSwitching()).thenReturn(false);
         mTelecomSystem = new TelecomSystem(
                 mComponentContextFixture.getTestDouble(),
-                (context, phoneAccountRegistrar, defaultDialerCache, mDeviceIdleControllerAdapter)
+                (context, phoneAccountRegistrar, defaultDialerCache, mDeviceIdleControllerAdapter,
+                        mFeatureFlag)
                         -> mMissedCallNotifier,
                 mCallerInfoAsyncQueryFactoryFixture.getTestDouble(),
                 headsetMediaButtonFactory,
@@ -544,9 +561,12 @@ public class TelecomSystemTest extends TelecomTestCase {
                 new CallAudioModeStateMachine.Factory() {
                     @Override
                     public CallAudioModeStateMachine create(SystemStateHelper systemStateHelper,
-                            AudioManager am, FeatureFlags featureFlags) {
+                            AudioManager am, FeatureFlags featureFlags,
+                            CallAudioCommunicationDeviceTracker callAudioCommunicationDeviceTracker
+                    ) {
                         return new CallAudioModeStateMachine(systemStateHelper, am,
-                                mHandlerThread.getLooper(), featureFlags);
+                                mHandlerThread.getLooper(), featureFlags,
+                                callAudioCommunicationDeviceTracker);
                     }
                 },
                 mClockProxy,
@@ -595,6 +615,7 @@ public class TelecomSystemTest extends TelecomTestCase {
         mTelecomSystem.getPhoneAccountRegistrar().registerPhoneAccount(mPhoneAccountB0);
         mTelecomSystem.getPhoneAccountRegistrar().registerPhoneAccount(mPhoneAccountE0);
         mTelecomSystem.getPhoneAccountRegistrar().registerPhoneAccount(mPhoneAccountE1);
+        mTelecomSystem.getPhoneAccountRegistrar().registerPhoneAccount(mPhoneAccountMultiUser);
 
         mTelecomSystem.getPhoneAccountRegistrar().setUserSelectedOutgoingPhoneAccount(
                 mPhoneAccountA0.getAccountHandle(), Process.myUserHandle());

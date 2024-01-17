@@ -27,6 +27,7 @@ import android.bluetooth.BluetoothStatusCodes;
 import android.content.Context;
 import android.media.AudioManager;
 import android.media.AudioDeviceInfo;
+import android.media.audio.common.AudioDevice;
 import android.os.Bundle;
 import android.telecom.Log;
 import android.util.ArraySet;
@@ -35,17 +36,18 @@ import android.util.LocalLog;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.IndentingPrintWriter;
 import com.android.server.telecom.CallAudioCommunicationDeviceTracker;
+import com.android.server.telecom.flags.FeatureFlags;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.concurrent.Executor;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.Executor;
 
 public class BluetoothDeviceManager {
 
@@ -211,9 +213,11 @@ public class BluetoothDeviceManager {
     private AudioManager mAudioManager;
     private Executor mExecutor;
     private CallAudioCommunicationDeviceTracker mCommunicationDeviceTracker;
+    private FeatureFlags mFeatureFlags;
 
     public BluetoothDeviceManager(Context context, BluetoothAdapter bluetoothAdapter,
-            CallAudioCommunicationDeviceTracker communicationDeviceTracker) {
+            CallAudioCommunicationDeviceTracker communicationDeviceTracker,
+            FeatureFlags featureFlags) {
         if (bluetoothAdapter != null) {
             mBluetoothAdapter = bluetoothAdapter;
             bluetoothAdapter.getProfileProxy(context, mBluetoothProfileServiceListener,
@@ -225,6 +229,7 @@ public class BluetoothDeviceManager {
             mAudioManager = context.getSystemService(AudioManager.class);
             mExecutor = context.getMainExecutor();
             mCommunicationDeviceTracker = communicationDeviceTracker;
+            mFeatureFlags = featureFlags;
         }
     }
 
@@ -454,9 +459,16 @@ public class BluetoothDeviceManager {
     public void disconnectAudio() {
         Log.i(this, "disconnectAudio");
         disconnectSco();
-        clearLeAudioOrSpeakerCommunicationDevice();
-        clearHearingAidOrSpeakerCommunicationDevice();
-        mCommunicationDeviceTracker.clearBtCommunicationDevice();
+        clearLeAudioCommunicationDevice();
+        clearHearingAidCommunicationDevice();
+        if (mFeatureFlags.callAudioCommunicationDeviceRefactor()) {
+            mCommunicationDeviceTracker.clearBtCommunicationDevice();
+            disconnectSco();
+        } else {
+            disconnectSco();
+            clearLeAudioCommunicationDevice();
+            clearHearingAidCommunicationDevice();
+        }
     }
 
     public void disconnectSco() {
@@ -477,9 +489,13 @@ public class BluetoothDeviceManager {
         return mHearingAidSetAsCommunicationDevice;
     }
 
-    public void clearLeAudioOrSpeakerCommunicationDevice() {
+    public void clearLeAudioCommunicationDevice() {
         Log.i(this, "clearLeAudioCommunicationDevice: mLeAudioSetAsCommunicationDevice = " +
                 mLeAudioSetAsCommunicationDevice + " device = " + mLeAudioDevice);
+        if (!mLeAudioSetAsCommunicationDevice) {
+            return;
+        }
+        mLeAudioSetAsCommunicationDevice = false;
         if (mLeAudioDevice != null) {
             mBluetoothRouteManager.onAudioLost(mLeAudioDevice);
             mLeAudioDevice = null;
@@ -492,15 +508,19 @@ public class BluetoothDeviceManager {
 
         AudioDeviceInfo audioDeviceInfo = mAudioManager.getCommunicationDevice();
         if (audioDeviceInfo != null && audioDeviceInfo.getType()
-                == AudioDeviceInfo.TYPE_BLE_HEADSET || audioDeviceInfo.getType() == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER) {
+                == AudioDeviceInfo.TYPE_BLE_HEADSET) {
+            mBluetoothRouteManager.onAudioLost(audioDeviceInfo.getAddress());
             mAudioManager.clearCommunicationDevice();
         }
-        mLeAudioSetAsCommunicationDevice = false;
     }
 
-    public void clearHearingAidOrSpeakerCommunicationDevice() {
+    public void clearHearingAidCommunicationDevice() {
         Log.i(this, "clearHearingAidCommunicationDevice: mHearingAidSetAsCommunicationDevice = "
                 + mHearingAidSetAsCommunicationDevice);
+        if (!mHearingAidSetAsCommunicationDevice) {
+            return;
+        }
+        mHearingAidSetAsCommunicationDevice = false;
         if (mHearingAidDevice != null) {
             mBluetoothRouteManager.onAudioLost(mHearingAidDevice);
             mHearingAidDevice = null;
@@ -512,15 +532,10 @@ public class BluetoothDeviceManager {
         }
 
         AudioDeviceInfo audioDeviceInfo = mAudioManager.getCommunicationDevice();
-        if (audioDeviceInfo != null) {
-            if (audioDeviceInfo.getType() == AudioDeviceInfo.TYPE_BLE_HEADSET) {
-                mBluetoothRouteManager.onAudioLost(audioDeviceInfo.getAddress());
-                mAudioManager.clearCommunicationDevice();
-            } else if (audioDeviceInfo.getType() == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER) {
-                mAudioManager.clearCommunicationDevice();
-            }
+        if (audioDeviceInfo != null && audioDeviceInfo.getType()
+                == AudioDeviceInfo.TYPE_HEARING_AID) {
+            mAudioManager.clearCommunicationDevice();
         }
-        mHearingAidSetAsCommunicationDevice = false;
     }
 
     public boolean setLeAudioCommunicationDevice(BluetoothDevice bleDevice) {
@@ -554,7 +569,7 @@ public class BluetoothDeviceManager {
         }
 
         // clear hearing aid communication device if set
-        clearHearingAidOrSpeakerCommunicationDevice();
+        clearHearingAidCommunicationDevice();
 
         // Turn BLE_OUT_HEADSET ON.
         boolean result = mAudioManager.setCommunicationDevice(bleHeadset);
@@ -603,7 +618,7 @@ public class BluetoothDeviceManager {
         }
 
         // clear LE audio communication device if set
-        clearLeAudioOrSpeakerCommunicationDevice();
+        clearLeAudioCommunicationDevice();
 
         // Turn hearing aid ON.
         boolean result = mAudioManager.setCommunicationDevice(hearingAid);
@@ -669,8 +684,11 @@ public class BluetoothDeviceManager {
                  * Only after receiving ACTION_ACTIVE_DEVICE_CHANGED it is known that device that
                  * will be audio switched to is available to be choose as communication device */
                 if (!switchingBtDevices) {
-                    return mCommunicationDeviceTracker.setCommunicationDevice(
-                            AudioDeviceInfo.TYPE_BLE_HEADSET, device);
+                    return mFeatureFlags.callAudioCommunicationDeviceRefactor() ?
+                            mCommunicationDeviceTracker.setCommunicationDevice(
+                                    AudioDeviceInfo.TYPE_BLE_HEADSET, device)
+// KEYSTONE(I76d16ad05e23507d9b5e24c3d1b9e31727464e74,b/311682533)
+                            : setLeAudioCommunicationDevice(device);
                 }
                 return true;
             }
@@ -681,8 +699,10 @@ public class BluetoothDeviceManager {
                  * Only after receiving ACTION_ACTIVE_DEVICE_CHANGED it is known that device that
                  * will be audio switched to is available to be choose as communication device */
                 if (!switchingBtDevices) {
-                    return mCommunicationDeviceTracker.setCommunicationDevice(
-                            AudioDeviceInfo.TYPE_HEARING_AID, null);
+                    return mFeatureFlags.callAudioCommunicationDeviceRefactor() ?
+                            mCommunicationDeviceTracker.setCommunicationDevice(
+                                    AudioDeviceInfo.TYPE_HEARING_AID, null)
+                            : setHearingAidCommunicationDevice();
                 }
                 return true;
             }

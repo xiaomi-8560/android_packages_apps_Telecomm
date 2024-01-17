@@ -245,7 +245,7 @@ public class TelecomSystem {
         try {
             mPhoneAccountRegistrar = new PhoneAccountRegistrar(mContext, mLock, defaultDialerCache,
                     packageName -> AppLabelProxy.Util.getAppLabel(
-                            mContext.getPackageManager(), packageName));
+                            mContext.getPackageManager(), packageName), null);
 
             mContactsAsyncHelper = contactsAsyncHelperFactory.create(
                     new ContactsAsyncHelper.ContentResolverAdapter() {
@@ -259,12 +259,13 @@ public class TelecomSystem {
                     CallAudioCommunicationDeviceTracker(mContext);
             BluetoothDeviceManager bluetoothDeviceManager = new BluetoothDeviceManager(mContext,
                     mContext.getSystemService(BluetoothManager.class).getAdapter(),
-                    communicationDeviceTracker);
+                    communicationDeviceTracker, featureFlags);
             BluetoothRouteManager bluetoothRouteManager = new BluetoothRouteManager(mContext, mLock,
                     bluetoothDeviceManager, new Timeouts.Adapter(),
                     communicationDeviceTracker, featureFlags);
             BluetoothStateReceiver bluetoothStateReceiver = new BluetoothStateReceiver(
-                    bluetoothDeviceManager, bluetoothRouteManager, communicationDeviceTracker);
+                    bluetoothDeviceManager, bluetoothRouteManager,
+                    communicationDeviceTracker, featureFlags);
             mContext.registerReceiver(bluetoothStateReceiver, BluetoothStateReceiver.INTENT_FILTER);
             communicationDeviceTracker.setBluetoothRouteManager(bluetoothRouteManager);
 
@@ -274,7 +275,8 @@ public class TelecomSystem {
             mMissedCallNotifier = missedCallNotifierImplFactory
                     .makeMissedCallNotifierImpl(mContext, mPhoneAccountRegistrar,
                             defaultDialerCache,
-                            deviceIdleControllerAdapter);
+                            deviceIdleControllerAdapter,
+                            featureFlags);
             DisconnectedCallNotifier.Factory disconnectedCallNotifierFactory =
                     new DisconnectedCallNotifier.Default();
 
@@ -293,7 +295,7 @@ public class TelecomSystem {
                         EmergencyCallHelper emergencyCallHelper) {
                     return new InCallController(context, lock, callsManager, systemStateProvider,
                             defaultDialerCache, timeoutsAdapter, emergencyCallHelper,
-                            new CarModeTracker(), clockProxy);
+                            new CarModeTracker(), clockProxy, featureFlags);
                 }
             };
 
@@ -483,6 +485,7 @@ public class TelecomSystem {
                     new TelecomServiceImpl.SubscriptionManagerAdapterImpl(),
                     new TelecomServiceImpl.SettingsSecureAdapterImpl(),
                     featureFlags,
+                    null,
                     mLock);
         } finally {
             Log.endSession();
