@@ -2265,7 +2265,7 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
         if (changedProperties != 0) {
             int previousProperties = mConnectionProperties;
             mConnectionProperties = connectionProperties;
-            mIsEmergencyCall = (mConnectionProperties &
+            mIsEmergencyCall = mIsEmergencyCall || (mConnectionProperties &
                                     Connection.PROPERTY_NETWORK_IDENTIFIED_EMERGENCY_CALL)
                                     == Connection.PROPERTY_NETWORK_IDENTIFIED_EMERGENCY_CALL;
             boolean didRttChange =
