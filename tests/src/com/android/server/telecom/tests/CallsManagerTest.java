@@ -17,8 +17,10 @@
 package com.android.server.telecom.tests;
 
 import static android.provider.CallLog.Calls.USER_MISSED_NOT_RUNNING;
+
 import static junit.framework.Assert.assertNotNull;
 import static junit.framework.TestCase.fail;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
@@ -41,6 +43,7 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+
 import static java.lang.Thread.sleep;
 
 import android.Manifest;
@@ -76,10 +79,11 @@ import android.telecom.VideoProfile;
 import android.telephony.CarrierConfigManager;
 import android.telephony.PhoneCapability;
 import android.telephony.TelephonyManager;
-import android.test.suitebuilder.annotation.MediumTest;
-import android.test.suitebuilder.annotation.SmallTest;
 import android.util.Pair;
 import android.widget.Toast;
+
+import androidx.test.filters.MediumTest;
+import androidx.test.filters.SmallTest;
 
 import com.android.internal.telecom.IConnectionService;
 import com.android.server.telecom.AnomalyReporterAdapter;
@@ -143,7 +147,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 import org.mockito.ArgumentCaptor;
-import org.mockito.Matchers;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
@@ -3077,11 +3081,9 @@ public class CallsManagerTest extends TelecomTestCase {
         mCallsManager.createActionSetCallStateAndPerformAction(
                 call, CallState.DISCONNECTED, "");
 
-        verify(sourceCall).onConnectionEvent(eq(Connection.EVENT_HANDOVER_FAILED), any());
         verify(sourceCall).onHandoverFailed(
                     android.telecom.Call.Callback.HANDOVER_FAILURE_USER_REJECTED);
 
-        verify(call).sendCallEvent(eq(android.telecom.Call.EVENT_HANDOVER_FAILED), any());
         verify(call).markFinishedHandoverStateAndCleanup(HandoverState.HANDOVER_FAILED);
     }
 
@@ -3094,9 +3096,6 @@ public class CallsManagerTest extends TelecomTestCase {
         when(call.getHandoverState()).thenReturn(HandoverState.HANDOVER_FROM_STARTED);
         mCallsManager.createActionSetCallStateAndPerformAction(
                 call, CallState.DISCONNECTED, "");
-
-        verify(destinationCall).sendCallEvent(
-                eq(android.telecom.Call.EVENT_HANDOVER_SOURCE_DISCONNECTED), any());
     }
 
     @SmallTest
@@ -3110,11 +3109,8 @@ public class CallsManagerTest extends TelecomTestCase {
         mCallsManager.createActionSetCallStateAndPerformAction(
                 call, CallState.DISCONNECTED, "");
 
-        verify(call).onConnectionEvent(eq(Connection.EVENT_HANDOVER_COMPLETE), any());
         verify(call).onHandoverComplete();
         verify(call).markFinishedHandoverStateAndCleanup(HandoverState.HANDOVER_COMPLETE);
-        verify(destinationCall).sendCallEvent(
-                eq(android.telecom.Call.EVENT_HANDOVER_COMPLETE), any());
         verify(destinationCall).onHandoverComplete();
     }
 
@@ -3131,11 +3127,8 @@ public class CallsManagerTest extends TelecomTestCase {
         mCallsManager.createActionSetCallStateAndPerformAction(
                 call, CallState.DISCONNECTED, "");
 
-        verify(call).onConnectionEvent(eq(Connection.EVENT_HANDOVER_COMPLETE), any());
         verify(call).onHandoverComplete();
         verify(call).markFinishedHandoverStateAndCleanup(HandoverState.HANDOVER_COMPLETE);
-        verify(destinationCall).sendCallEvent(
-                eq(android.telecom.Call.EVENT_HANDOVER_COMPLETE), any());
         verify(destinationCall).onHandoverComplete();
         verify(otherCall).disconnect();
     }
@@ -3390,8 +3383,8 @@ public class CallsManagerTest extends TelecomTestCase {
         // Mocks some methods to not call the real method.
         doNothing().when(callSpy).unhold();
         doNothing().when(callSpy).hold();
-        doNothing().when(callSpy).answer(Matchers.anyInt());
-        doNothing().when(callSpy).setStartWithSpeakerphoneOn(Matchers.anyBoolean());
+        doNothing().when(callSpy).answer(ArgumentMatchers.anyInt());
+        doNothing().when(callSpy).setStartWithSpeakerphoneOn(ArgumentMatchers.anyBoolean());
 
         mCallsManager.addCall(callSpy);
         return callSpy;
@@ -3405,8 +3398,8 @@ public class CallsManagerTest extends TelecomTestCase {
         doNothing().when(callSpy).unhold();
         doNothing().when(callSpy).hold();
         doNothing().when(callSpy).disconnect();
-        doNothing().when(callSpy).answer(Matchers.anyInt());
-        doNothing().when(callSpy).setStartWithSpeakerphoneOn(Matchers.anyBoolean());
+        doNothing().when(callSpy).answer(ArgumentMatchers.anyInt());
+        doNothing().when(callSpy).setStartWithSpeakerphoneOn(ArgumentMatchers.anyBoolean());
 
         return callSpy;
     }

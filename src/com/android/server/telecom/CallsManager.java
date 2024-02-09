@@ -73,6 +73,7 @@ import android.os.PersistableBundle;
 import android.os.Process;
 import android.os.ResultReceiver;
 import android.os.SystemClock;
+import android.os.SystemProperties;
 import android.os.SystemVibrator;
 import android.os.Trace;
 import android.os.UserHandle;
@@ -1363,9 +1364,7 @@ public class CallsManager extends Call.ListenerBase
     @Override
     public void onHandoverRequested(Call call, PhoneAccountHandle handoverTo, int videoState,
                                     Bundle extras, boolean isLegacy) {
-        if (isLegacy) {
-            requestHandoverViaEvents(call, handoverTo, videoState, extras);
-        } else {
+        if (!isLegacy) {
             requestHandover(call, handoverTo, videoState, extras);
         }
     }
@@ -3251,9 +3250,8 @@ public class CallsManager extends Call.ListenerBase
      * @return {@code true} if the speakerphone should automatically be enabled.
      */
     private static boolean isSpeakerEnabledForVideoCalls() {
-        return TelephonyProperties.videocall_audio_output()
-                .orElse(TelecomManager.AUDIO_OUTPUT_DEFAULT)
-                == TelecomManager.AUDIO_OUTPUT_ENABLE_SPEAKER;
+        return SystemProperties.getInt(TelecomManager.PROPERTY_VIDEOCALL_AUDIO_OUTPUT,
+                TelecomManager.AUDIO_OUTPUT_DEFAULT) == TelecomManager.AUDIO_OUTPUT_ENABLE_SPEAKER;
     }
 
     /**
@@ -3667,7 +3665,7 @@ public class CallsManager extends Call.ListenerBase
     }
 
     /** Called by the in-call UI to change the mute state. */
-    void mute(boolean shouldMute) {
+    public void mute(boolean shouldMute) {
         if (isInEmergencyCall() && shouldMute) {
             Log.i(this, "Refusing to turn on mute because we're in an emergency call");
             shouldMute = false;
@@ -4799,10 +4797,6 @@ public class CallsManager extends Call.ListenerBase
             if (handoverState == HandoverState.HANDOVER_FROM_STARTED) {
                 // Disconnect before handover was accepted.
                 Log.i(this, "setCallState: disconnect before handover accepted");
-                // Let the handover destination know that the source has disconnected prior to
-                // completion of the handover.
-                call.getHandoverDestinationCall().sendCallEvent(
-                        android.telecom.Call.EVENT_HANDOVER_SOURCE_DISCONNECTED, null);
             } else if (handoverState == HandoverState.HANDOVER_ACCEPTED) {
                 Log.i(this, "setCallState: handover from complete");
                 completeHandoverFrom(call);
@@ -4820,11 +4814,9 @@ public class CallsManager extends Call.ListenerBase
         // Inform the "from" Call (ie the source call) that the handover from it has
         // completed; this allows the InCallService to be notified that a handover it
         // initiated completed.
-        call.onConnectionEvent(Connection.EVENT_HANDOVER_COMPLETE, null);
         call.onHandoverComplete();
 
         // Inform the "to" ConnectionService that handover to it has completed.
-        handoverTo.sendCallEvent(android.telecom.Call.EVENT_HANDOVER_COMPLETE, null);
         handoverTo.onHandoverComplete();
         answerCall(handoverTo, handoverTo.getVideoState());
         call.markFinishedHandoverStateAndCleanup(HandoverState.HANDOVER_COMPLETE);
@@ -4847,7 +4839,6 @@ public class CallsManager extends Call.ListenerBase
         // Inform the "from" Call (ie the source call) that the handover from it has
         // failed; this allows the InCallService to be notified that a handover it
         // initiated failed.
-        handoverFrom.onConnectionEvent(Connection.EVENT_HANDOVER_FAILED, null);
         handoverFrom.onHandoverFailed(android.telecom.Call.Callback.HANDOVER_FAILURE_USER_REJECTED);
 
         // Inform the "to" ConnectionService that handover to it has failed.  This
@@ -4856,7 +4847,6 @@ public class CallsManager extends Call.ListenerBase
             // Only attempt if the call has a bound ConnectionService if handover failed
             // early on in the handover process, the CS will be unbound and we won't be
             // able to send the call event.
-            handoverTo.sendCallEvent(android.telecom.Call.EVENT_HANDOVER_FAILED, null);
             handoverTo.getConnectionService().handoverFailed(handoverTo,
                     android.telecom.Call.Callback.HANDOVER_FAILURE_USER_REJECTED);
         }
@@ -6197,28 +6187,6 @@ public class CallsManager extends Call.ListenerBase
         service.handoverFailed(call, reason);
         call.setDisconnectCause(new DisconnectCause(DisconnectCause.CANCELED));
         call.disconnect("handover failed");
-    }
-
-    /**
-     * Called in response to a {@link Call} receiving a {@link Call#sendCallEvent(String, Bundle)}
-     * of type {@link android.telecom.Call#EVENT_REQUEST_HANDOVER} indicating the
-     * {@link android.telecom.InCallService} has requested a handover to another
-     * {@link android.telecom.ConnectionService}.
-     *
-     * We will explicitly disallow a handover when there is an emergency call present.
-     *
-     * @param handoverFromCall The {@link Call} to be handed over.
-     * @param handoverToHandle The {@link PhoneAccountHandle} to hand over the call to.
-     * @param videoState The desired video state of {@link Call} after handover.
-     * @param initiatingExtras Extras associated with the handover, to be passed to the handover
-     *               {@link android.telecom.ConnectionService}.
-     */
-    private void requestHandoverViaEvents(Call handoverFromCall,
-                                          PhoneAccountHandle handoverToHandle,
-                                          int videoState, Bundle initiatingExtras) {
-
-        handoverFromCall.sendCallEvent(android.telecom.Call.EVENT_HANDOVER_FAILED, null);
-        Log.addEvent(handoverFromCall, LogUtils.Events.HANDOVER_REQUEST, "legacy request denied");
     }
 
     /**

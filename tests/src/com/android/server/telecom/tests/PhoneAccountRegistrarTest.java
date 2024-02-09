@@ -23,14 +23,12 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Matchers.anyBoolean;
-import static org.mockito.Matchers.anyInt;
-import static org.mockito.Matchers.anyString;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.clearInvocations;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -57,11 +55,11 @@ import android.telecom.TelecomManager;
 import android.telephony.CarrierConfigManager;
 import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
-import android.test.suitebuilder.annotation.SmallTest;
-import android.test.suitebuilder.annotation.MediumTest;
 import android.util.Xml;
 
 import androidx.test.InstrumentationRegistry;
+import androidx.test.filters.MediumTest;
+import androidx.test.filters.SmallTest;
 
 import com.android.internal.telecom.IConnectionService;
 import com.android.internal.util.FastXmlSerializer;
@@ -354,40 +352,6 @@ public class PhoneAccountRegistrarTest extends TelecomTestCase {
         assertEquals(null, mRegistrar.getSimCallManagerOfCurrentUser());
         assertEquals(null, mRegistrar.getOutgoingPhoneAccountForSchemeOfCurrentUser(
                 PhoneAccount.SCHEME_TEL));
-    }
-
-    /**
-     * Verify when a {@link android.telecom.ConnectionService} is disabled or cannot be resolved,
-     * all phone accounts are unregistered when calling
-     * {@link  PhoneAccountRegistrar#getAccountsForPackage_BypassResolveComp(String, UserHandle)}.
-     */
-    @Test
-    public void testCannotResolveServiceUnregistersAccounts() throws Exception {
-        ComponentName componentName = makeQuickConnectionServiceComponentName();
-        PhoneAccount account = makeQuickAccountBuilder("0", 0, USER_HANDLE_10)
-                .setCapabilities(PhoneAccount.CAPABILITY_CONNECTION_MANAGER
-                        | PhoneAccount.CAPABILITY_CALL_PROVIDER).build();
-        // add the ConnectionService and register a single phone account for it
-        mComponentContextFixture.addConnectionService(componentName,
-                Mockito.mock(IConnectionService.class));
-        registerAndEnableAccount(account);
-        // verify the start state
-        assertEquals(1,
-                mRegistrar.getAccountsForPackage_BypassResolveComp(componentName.getPackageName(),
-                        USER_HANDLE_10).size());
-        // remove the ConnectionService so that the account cannot be resolved anymore
-        mComponentContextFixture.removeConnectionService(componentName,
-                Mockito.mock(IConnectionService.class));
-        // verify the account is unregistered when fetching the phone accounts for the package
-        assertEquals(1,
-                mRegistrar.getAccountsForPackage_BypassResolveComp(componentName.getPackageName(),
-                        USER_HANDLE_10).size());
-        assertEquals(0,mRegistrar.cleanupUnresolvableConnectionServiceAccounts(
-                mRegistrar.getAccountsForPackage_BypassResolveComp(componentName.getPackageName(),
-                USER_HANDLE_10)).size());
-        assertEquals(0,
-                mRegistrar.getAccountsForPackage_BypassResolveComp(componentName.getPackageName(),
-                        USER_HANDLE_10).size());
     }
 
     @MediumTest
