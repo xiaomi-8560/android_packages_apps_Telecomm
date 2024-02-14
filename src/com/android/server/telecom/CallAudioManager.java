@@ -845,6 +845,10 @@ public class CallAudioManager extends CallsManagerListenerBase {
 
     private void onCallEnteringRinging() {
         if (mRingingCalls.size() == 1) {
+            // Wait until the BT ICS binding completed to request further audio route change
+            for (Call ringingCall: mRingingCalls) {
+                ringingCall.waitForBtIcs();
+            }
             mCallAudioModeStateMachine.sendMessageWithArgs(
                     CallAudioModeStateMachine.NEW_RINGING_CALL,
                     makeArgsForModeStateMachine());
