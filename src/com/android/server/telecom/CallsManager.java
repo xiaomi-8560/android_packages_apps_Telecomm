@@ -79,7 +79,7 @@ import android.os.Trace;
 import android.os.UserHandle;
 import android.os.UserManager;
 import android.provider.BlockedNumberContract;
-import android.provider.BlockedNumberContract.SystemContract;
+import android.provider.BlockedNumberContract.BlockedNumbers;
 import android.provider.CallLog.Calls;
 import android.provider.Settings;
 import android.sysprop.TelephonyProperties;
@@ -578,7 +578,7 @@ public class CallsManager extends Call.ListenerBase
         public void onReceive(Context context, Intent intent) {
             String action = intent.getAction();
             if (CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED.equals(action)
-                    || SystemContract.ACTION_BLOCK_SUPPRESSION_STATE_CHANGED.equals(action)) {
+                    || BlockedNumbers.ACTION_BLOCK_SUPPRESSION_STATE_CHANGED.equals(action)) {
                 updateEmergencyCallNotificationAsync(context);
             } else if (ACTION_MSIM_VOICE_CAPABILITY_CHANGED.equals(action)) {
                 updateCanAddCall();
@@ -775,7 +775,7 @@ public class CallsManager extends Call.ListenerBase
         IntentFilter intentFilter = new IntentFilter(
                 CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
         intentFilter.setPriority(IntentFilter.SYSTEM_HIGH_PRIORITY);
-        intentFilter.addAction(SystemContract.ACTION_BLOCK_SUPPRESSION_STATE_CHANGED);
+        intentFilter.addAction(BlockedNumbers.ACTION_BLOCK_SUPPRESSION_STATE_CHANGED);
         intentFilter.addAction(ACTION_MSIM_VOICE_CAPABILITY_CHANGED);
         context.registerReceiver(mReceiver, intentFilter, Context.RECEIVER_EXPORTED);
         mGraphHandlerThreads = new LinkedList<>();
@@ -3030,7 +3030,7 @@ public class CallsManager extends Call.ListenerBase
 
         if (call.isEmergencyCall()) {
             Executors.defaultThreadFactory().newThread(() ->
-                    BlockedNumberContract.SystemContract.notifyEmergencyContact(mContext))
+                    BlockedNumberContract.BlockedNumbers.notifyEmergencyContact(mContext))
                     .start();
         }
 
