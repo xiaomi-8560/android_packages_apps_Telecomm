@@ -118,6 +118,7 @@ import android.widget.Button;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.app.IntentForwarderActivity;
 import com.android.internal.util.IndentingPrintWriter;
+import com.android.server.telecom.bluetooth.BluetoothDeviceManager;
 import com.android.server.telecom.bluetooth.BluetoothRouteManager;
 import com.android.server.telecom.bluetooth.BluetoothStateReceiver;
 import com.android.server.telecom.callfiltering.BlockCheckerAdapter;
@@ -631,6 +632,7 @@ public class CallsManager extends Call.ListenerBase
             EmergencyCallDiagnosticLogger emergencyCallDiagnosticLogger,
             CallAudioCommunicationDeviceTracker communicationDeviceTracker,
             CallStreamingNotification callStreamingNotification,
+            BluetoothDeviceManager bluetoothDeviceManager,
             FeatureFlags featureFlags,
             IncomingCallFilterGraphProvider incomingCallFilterGraphProvider) {
 
@@ -656,6 +658,9 @@ public class CallsManager extends Call.ListenerBase
         mDtmfLocalTonePlayer =
                 new DtmfLocalTonePlayer(new DtmfLocalTonePlayer.ToneGeneratorProxy());
         CallAudioRouteAdapter callAudioRouteAdapter;
+        // TODO: add another flag check when
+        // bluetoothDeviceManager.getBluetoothHeadset().isScoManagedByAudio()
+        // available and return true
         if (!featureFlags.useRefactoredAudioRouteSwitching()) {
             callAudioRouteAdapter = callAudioRouteStateMachineFactory.create(
                     context,
@@ -670,8 +675,8 @@ public class CallsManager extends Call.ListenerBase
                     featureFlags
             );
         } else {
-            callAudioRouteAdapter = new CallAudioRouteController(
-                    context, this, new AudioRoute.Factory(), wiredHeadsetManager);
+            callAudioRouteAdapter = new CallAudioRouteController(context, this, audioServiceFactory,
+                    new AudioRoute.Factory(), wiredHeadsetManager, mBluetoothRouteManager);
         }
         callAudioRouteAdapter.initialize();
         bluetoothStateReceiver.setCallAudioRouteAdapter(callAudioRouteAdapter);
@@ -724,7 +729,8 @@ public class CallsManager extends Call.ListenerBase
         mCallLogManager = new CallLogManager(context, phoneAccountRegistrar, mMissedCallNotifier,
                 mAnomalyReporter, featureFlags);
         mConnectionServiceRepository =
-                new ConnectionServiceRepository(mPhoneAccountRegistrar, mContext, mLock, this);
+                new ConnectionServiceRepository(mPhoneAccountRegistrar, mContext, mLock, this,
+                        featureFlags);
         mInCallWakeLockController = inCallWakeLockControllerFactory.create(context, this);
         mClockProxy = clockProxy;
         mToastFactory = toastFactory;
@@ -6172,8 +6178,7 @@ public class CallsManager extends Call.ListenerBase
             return;
         }
         ConnectionServiceWrapper service = mConnectionServiceRepository.getService(
-                phoneAccountHandle.getComponentName(), phoneAccountHandle.getUserHandle(),
-                mFeatureFlags);
+                phoneAccountHandle.getComponentName(), phoneAccountHandle.getUserHandle());
         if (service == null) {
             Log.i(this, "Found no connection service.");
             return;
@@ -6198,8 +6203,7 @@ public class CallsManager extends Call.ListenerBase
             return;
         }
         ConnectionServiceWrapper service = mConnectionServiceRepository.getService(
-                phoneAccountHandle.getComponentName(), phoneAccountHandle.getUserHandle(),
-                mFeatureFlags);
+                phoneAccountHandle.getComponentName(), phoneAccountHandle.getUserHandle());
         if (service == null) {
             Log.i(this, "Found no connection service.");
             return;
