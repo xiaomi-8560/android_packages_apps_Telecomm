@@ -970,6 +970,11 @@ public class BluetoothRouteManager extends StateMachine {
         return mDeviceManager.isInbandRingingEnabled();
     }
 
+    @VisibleForTesting
+    public boolean isInbandRingEnabled(BluetoothDevice bluetoothDevice) {
+        return mDeviceManager.isInbandRingEnabled(bluetoothDevice);
+    }
+
     private boolean addDevice(String address) {
         Log.i(this, "addDevice : " + address);
         if (mAudioConnectingStates.containsKey(address)) {
