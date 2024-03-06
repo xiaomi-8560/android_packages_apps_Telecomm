@@ -6822,9 +6822,14 @@ public class CallsManager extends Call.ListenerBase
      * @return {@code true} if call is visible to the calling user
      */
     boolean isCallVisibleForUser(Call call, UserHandle userHandle) {
-        return call.getAssociatedUser().equals(userHandle)
-                || call.getPhoneAccountFromHandle()
-                .hasCapabilities(PhoneAccount.CAPABILITY_MULTI_USER);
+        if (call == null) {
+            return false;
+        }
+        return (call.getAssociatedUser() != null &&
+                call.getAssociatedUser().equals(userHandle))
+                || (call.getPhoneAccountFromHandle() != null &&
+                call.getPhoneAccountFromHandle()
+                .hasCapabilities(PhoneAccount.CAPABILITY_MULTI_USER));
     }
 
     /**
