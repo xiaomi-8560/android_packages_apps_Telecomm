@@ -36,6 +36,7 @@ import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
@@ -56,7 +57,6 @@ import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
-import android.os.IBinder;
 import android.os.Looper;
 import android.os.OutcomeReceiver;
 import android.os.Process;
@@ -64,7 +64,6 @@ import android.os.ResultReceiver;
 import android.os.SystemClock;
 import android.os.UserHandle;
 import android.os.UserManager;
-import android.platform.test.flag.junit.SetFlagsRule;
 import android.provider.BlockedNumberContract;
 import android.telecom.CallException;
 import android.telecom.CallScreeningService;
@@ -113,6 +112,7 @@ import com.android.server.telecom.HeadsetMediaButton;
 import com.android.server.telecom.HeadsetMediaButtonFactory;
 import com.android.server.telecom.InCallController;
 import com.android.server.telecom.InCallControllerFactory;
+import com.android.server.telecom.DefaultDialerCache;
 import com.android.server.telecom.InCallTonePlayer;
 import com.android.server.telecom.InCallWakeLockController;
 import com.android.server.telecom.InCallWakeLockControllerFactory;
@@ -127,13 +127,13 @@ import com.android.server.telecom.SystemStateHelper;
 import com.android.server.telecom.TelecomSystem;
 import com.android.server.telecom.Timeouts;
 import com.android.server.telecom.WiredHeadsetManager;
+import com.android.server.telecom.bluetooth.BluetoothDeviceManager;
 import com.android.server.telecom.bluetooth.BluetoothRouteManager;
 import com.android.server.telecom.bluetooth.BluetoothStateReceiver;
 import com.android.server.telecom.callfiltering.BlockedNumbersAdapter;
 import com.android.server.telecom.callfiltering.CallFilteringResult;
-import com.android.server.telecom.callfiltering.IncomingCallFilterGraph;
 import com.android.server.telecom.flags.FeatureFlags;
-import com.android.server.telecom.flags.Flags;
+import com.android.server.telecom.callfiltering.IncomingCallFilterGraph;
 import com.android.server.telecom.ui.AudioProcessingNotification;
 import com.android.server.telecom.ui.CallStreamingNotification;
 import com.android.server.telecom.ui.DisconnectedCallNotifier;
@@ -142,12 +142,13 @@ import com.android.server.telecom.voip.TransactionManager;
 
 import org.junit.After;
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
+import org.mockito.InOrder;
+import org.mockito.Matchers;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
@@ -290,11 +291,9 @@ public class CallsManagerTest extends TelecomTestCase {
     @Mock private PhoneCapability mPhoneCapability;
     @Mock private CallAudioCommunicationDeviceTracker mCommunicationDeviceTracker;
     @Mock private CallStreamingNotification mCallStreamingNotification;
+    @Mock private BluetoothDeviceManager mBluetoothDeviceManager;
     @Mock private FeatureFlags mFeatureFlags;
-
     @Mock private IncomingCallFilterGraph mIncomingCallFilterGraph;
-    @Mock private IConnectionService mIConnectionService;
-    @Rule public SetFlagsRule mSetRlagsRule = new SetFlagsRule();
     private CallsManager mCallsManager;
 
     @Override
@@ -369,6 +368,7 @@ public class CallsManagerTest extends TelecomTestCase {
                 mEmergencyCallDiagnosticLogger,
                 mCommunicationDeviceTracker,
                 mCallStreamingNotification,
+                mBluetoothDeviceManager,
                 mFeatureFlags,
                 (call, listener, context, timeoutsAdapter, lock) -> mIncomingCallFilterGraph);
 
@@ -382,17 +382,12 @@ public class CallsManagerTest extends TelecomTestCase {
                 eq(WORK_HANDLE), any())).thenReturn(WORK_ACCOUNT);
         when(mToastFactory.makeText(any(), anyInt(), anyInt())).thenReturn(mToast);
         when(mToastFactory.makeText(any(), any(), anyInt())).thenReturn(mToast);
-        when(mIConnectionService.asBinder()).thenReturn(mock(IBinder.class));
-
-        mComponentContextFixture.addConnectionService(
-                SIM_1_ACCOUNT.getAccountHandle().getComponentName(), mIConnectionService);
+        when(mFeatureFlags.separatelyBindToBtIncallService()).thenReturn(false);
     }
 
     @Override
     @After
     public void tearDown() throws Exception {
-        mComponentContextFixture.removeConnectionService(
-                SIM_1_ACCOUNT.getAccountHandle().getComponentName(), mIConnectionService);
         super.tearDown();
     }
 
@@ -2841,37 +2836,6 @@ public class CallsManagerTest extends TelecomTestCase {
         assertTrue(result.contains("onReceiveResult"));
     }
 
-    @Test
-    public void testConnectionServiceCreateConnectionTimeout() throws Exception {
-        mSetRlagsRule.enableFlags(Flags.FLAG_UNBIND_TIMEOUT_CONNECTIONS);
-        ConnectionServiceWrapper service = new ConnectionServiceWrapper(
-                SIM_1_ACCOUNT.getAccountHandle().getComponentName(), null,
-                mPhoneAccountRegistrar, mCallsManager, mContext, mLock, null,
-                mFeatureFlags);
-        TestScheduledExecutorService scheduledExecutorService = new TestScheduledExecutorService();
-        service.setScheduledExecutorService(scheduledExecutorService);
-        Call call = addSpyCall();
-        service.addCall(call);
-        when(call.isCreateConnectionComplete()).thenReturn(false);
-        CreateConnectionResponse response = mock(CreateConnectionResponse.class);
-
-        service.createConnection(call, response);
-        waitUntilConditionIsTrueOrTimeout(new Condition() {
-            @Override
-            public Object expected() {
-                return true;
-            }
-
-            @Override
-            public Object actual() {
-                return scheduledExecutorService.isRunnableScheduledAtTime(15000L);
-            }
-        }, 5000L, "Expected job failed to schedule");
-        scheduledExecutorService.advanceTime(15000L);
-        verify(response).handleCreateConnectionFailure(
-                eq(new DisconnectCause(DisconnectCause.ERROR)));
-    }
-
     @SmallTest
     @Test
     public void testOnFailedOutgoingCallUnholdsCallAfterLocallyDisconnect() {
@@ -3233,7 +3197,7 @@ public class CallsManagerTest extends TelecomTestCase {
                 .thenReturn(true);
         mComponentContextFixture.getBroadcastReceivers().forEach(c -> c.onReceive(mContext,
                 new Intent(
-                        BlockedNumberContract.SystemContract
+                        BlockedNumberContract.BlockedNumbers
                                 .ACTION_BLOCK_SUPPRESSION_STATE_CHANGED)));
         verify(mBlockedNumbersAdapter).updateEmergencyCallNotification(any(Context.class),
                 eq(true));
@@ -3242,7 +3206,7 @@ public class CallsManagerTest extends TelecomTestCase {
                 .thenReturn(false);
         mComponentContextFixture.getBroadcastReceivers().forEach(c -> c.onReceive(mContext,
                 new Intent(
-                        BlockedNumberContract.SystemContract
+                        BlockedNumberContract.BlockedNumbers
                                 .ACTION_BLOCK_SUPPRESSION_STATE_CHANGED)));
         verify(mBlockedNumbersAdapter).updateEmergencyCallNotification(any(Context.class),
                 eq(false));
@@ -3353,6 +3317,28 @@ public class CallsManagerTest extends TelecomTestCase {
         assertTrue(mCallsManager.isInSelfManagedCall(TEST_PACKAGE_NAME, TEST_USER_HANDLE));
     }
 
+    @SmallTest
+    @Test
+    public void testBindToBtServiceSeparately() {
+        when(mFeatureFlags.separatelyBindToBtIncallService()).thenReturn(true);
+        Call call = addSpyCall(CallState.NEW);
+        CallFilteringResult result = new CallFilteringResult.Builder()
+                .setShouldAllowCall(true)
+                .setShouldReject(false)
+                .build();
+        when(mInCallController.bindToBTService(eq(call))).thenReturn(
+                CompletableFuture.completedFuture(true));
+        when(mInCallController.isBoundAndConnectedToBTService(any(UserHandle.class)))
+                .thenReturn(false);
+
+        mCallsManager.onCallFilteringComplete(call, result, false);
+
+        InOrder inOrder = inOrder(mInCallController, call, mInCallController);
+
+        inOrder.verify(mInCallController).bindToBTService(eq(call));
+        inOrder.verify(call).setState(eq(CallState.RINGING), anyString());
+    }
+
 
     private Call addSpyCall() {
         return addSpyCall(SIM_2_HANDLE, CallState.ACTIVE);
@@ -3456,20 +3442,5 @@ public class CallsManagerTest extends TelecomTestCase {
         TelephonyManager mockTelephonyManager = mComponentContextFixture.getTelephonyManager();
         when(mockTelephonyManager.getPhoneCapability()).thenReturn(mPhoneCapability);
         when(mPhoneCapability.getMaxActiveVoiceSubscriptions()).thenReturn(num);
-    }
-
-    private void waitUntilConditionIsTrueOrTimeout(Condition condition, long timeout,
-                                                   String description) throws InterruptedException {
-        final long start = System.currentTimeMillis();
-        while (!condition.expected().equals(condition.actual())
-                && System.currentTimeMillis() - start < timeout) {
-            sleep(50);
-        }
-        assertEquals(description, condition.expected(), condition.actual());
-    }
-
-    protected interface Condition {
-        Object expected();
-        Object actual();
     }
 }

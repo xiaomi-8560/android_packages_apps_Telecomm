@@ -111,7 +111,10 @@ import org.mockito.Mock;
 
 import java.lang.reflect.Method;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.function.IntConsumer;
 
@@ -846,6 +849,62 @@ public class TelecomServiceImplTest extends TelecomTestCase {
 
     @SmallTest
     @Test
+    public void testRegisterPhoneAccountSimultaneousCallingVerification() throws RemoteException {
+        doReturn(true).when(mTelephonyFeatureFlags).simultaneousCallingIndications();
+        doReturn(PackageManager.PERMISSION_GRANTED)
+                .when(mContext).checkCallingOrSelfPermission(MODIFY_PHONE_STATE);
+        String packageNameToUse = "com.android.officialpackage";
+        PhoneAccountHandle phHandle = new PhoneAccountHandle(new ComponentName(
+                packageNameToUse, "cs"), "test", Binder.getCallingUserHandle());
+        PhoneAccountHandle phAllowedRestriction = new PhoneAccountHandle(new ComponentName(
+                packageNameToUse, "cs"), "test2", Binder.getCallingUserHandle());
+
+        PhoneAccount phoneAccountEmptyRestriction = makePhoneAccount(phHandle)
+                .setSimultaneousCallingRestriction(Collections.emptySet())
+                .build();
+        try {
+            mTSIBinder.registerPhoneAccount(phoneAccountEmptyRestriction, CALLING_PACKAGE);
+            verify(mFakePhoneAccountRegistrar).registerPhoneAccount(phoneAccountEmptyRestriction);
+        } catch (SecurityException e) {
+            fail("registerPhoneAccount must not throw a SecurityException if there is a "
+                    + " restriction registered with the same package name.");
+        }
+
+        Set<PhoneAccountHandle> restriction = new HashSet<>(3);
+        restriction.add(phAllowedRestriction);
+        PhoneAccount phoneAccount = makePhoneAccount(phHandle)
+                .setSimultaneousCallingRestriction(restriction)
+                .build();
+
+        try {
+            mTSIBinder.registerPhoneAccount(phoneAccount, CALLING_PACKAGE);
+            verify(mFakePhoneAccountRegistrar).registerPhoneAccount(phoneAccount);
+        } catch (SecurityException e) {
+            fail("registerPhoneAccount must not throw a SecurityException if there is a "
+                    + " restriction registered with the same package name.");
+        }
+
+        String anotherPackageName = "com.android.anotherpackage";
+        PhoneAccountHandle phDisallowedRestriction = new PhoneAccountHandle(new ComponentName(
+                anotherPackageName, "cs"), "test", Binder.getCallingUserHandle());
+        restriction.add(phDisallowedRestriction);
+        phoneAccount = makePhoneAccount(phHandle)
+                .setSimultaneousCallingRestriction(restriction)
+                .build();
+
+        try {
+            mTSIBinder.registerPhoneAccount(phoneAccount, CALLING_PACKAGE);
+            // there should not be another call to registerPhoneAccount
+            verify(mFakePhoneAccountRegistrar, times(1)).registerPhoneAccount(phoneAccount);
+            fail("registerPhoneAccount must throw a SecurityException if there is a "
+                    + " restriction registered with a different package name.");
+        } catch (SecurityException e) {
+            //expected
+        }
+    }
+
+    @SmallTest
+    @Test
     public void testRegisterPhoneAccountWithoutPermissionAnomalyReported() throws RemoteException {
         PhoneAccountHandle handle = new PhoneAccountHandle(
                 new ComponentName("package", "cs"), "test", Binder.getCallingUserHandle());
@@ -1108,7 +1167,7 @@ public class TelecomServiceImplTest extends TelecomTestCase {
 
         verify(mFakePhoneAccountRegistrar).getPhoneAccount(
                 TEL_PA_HANDLE_16, TEL_PA_HANDLE_16.getUserHandle());
-        verify(mInCallController, never()).bindToServices(any());
+        verify(mInCallController, never()).bindToServices(any(), anyBoolean());
         addCallTestHelper(TelecomManager.ACTION_INCOMING_CALL,
                 CallIntentProcessor.KEY_IS_INCOMING_CALL, extras,
                 TEL_PA_HANDLE_16, false);
@@ -1130,7 +1189,7 @@ public class TelecomServiceImplTest extends TelecomTestCase {
 
         mTSIBinder.addNewIncomingCall(TEL_PA_HANDLE_16, extras, CALLING_PACKAGE);
 
-        verify(mInCallController, never()).bindToServices(null);
+        verify(mInCallController, never()).bindToServices(eq(null), anyBoolean());
     }
 
     @SmallTest
@@ -1148,7 +1207,7 @@ public class TelecomServiceImplTest extends TelecomTestCase {
 
         mTSIBinder.addNewIncomingCall(TEL_PA_HANDLE_16, extras, CALLING_PACKAGE);
 
-        verify(mInCallController).bindToServices(null);
+        verify(mInCallController).bindToServices(eq(null), anyBoolean());
     }
 
     @SmallTest
@@ -1166,7 +1225,7 @@ public class TelecomServiceImplTest extends TelecomTestCase {
 
         mTSIBinder.addNewIncomingCall(TEL_PA_HANDLE_16, extras, CALLING_PACKAGE);
 
-        verify(mInCallController, never()).bindToServices(null);
+        verify(mInCallController, never()).bindToServices(eq(null), anyBoolean());
     }
 
     @SmallTest
@@ -1185,7 +1244,7 @@ public class TelecomServiceImplTest extends TelecomTestCase {
 
         mTSIBinder.addNewIncomingCall(TEL_PA_HANDLE_16, extras, CALLING_PACKAGE);
 
-        verify(mInCallController, never()).bindToServices(null);
+        verify(mInCallController, never()).bindToServices(eq(null), anyBoolean());
     }
 
 

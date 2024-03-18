@@ -51,6 +51,7 @@ import android.os.vibrator.persistence.VibrationXmlParser;
 import android.provider.Settings;
 import android.telecom.Log;
 import android.telecom.TelecomManager;
+import android.util.Pair;
 import android.view.accessibility.AccessibilityManager;
 
 import com.android.internal.annotations.VisibleForTesting;
@@ -645,18 +646,18 @@ public class Ringer {
                         isVibratorEnabled, mIsHapticPlaybackSupportedByDevice);
             }
             // Defer ringtone creation to the async player thread.
-            Supplier<Ringtone> ringtoneSupplier;
+            Supplier<Pair<Uri, Ringtone>> ringtoneInfoSupplier;
             final boolean finalHapticChannelsMuted = hapticChannelsMuted;
             if (isHapticOnly) {
                 if (hapticChannelsMuted) {
                     Log.i(this,
                             "want haptic only ringtone but haptics are muted, skip ringtone play");
-                    ringtoneSupplier = null;
+                    ringtoneInfoSupplier = null;
                 } else {
-                    ringtoneSupplier = mRingtoneFactory::getHapticOnlyRingtone;
+                    ringtoneInfoSupplier = mRingtoneFactory::getHapticOnlyRingtone;
                 }
             } else {
-                ringtoneSupplier = () -> mRingtoneFactory.getRingtone(
+                ringtoneInfoSupplier = () -> mRingtoneFactory.getRingtone(
                         foregroundCall, mVolumeShaperConfig, finalHapticChannelsMuted);
             }
 
@@ -679,9 +680,18 @@ public class Ringer {
             // if the loaded ringtone is null. However if a stop event arrives before the ringtone
             // creation finishes, then this consumer can be skipped.
             final boolean finalUseCustomVibrationEffect = useCustomVibrationEffect;
-            BiConsumer<Ringtone, Boolean> afterRingtoneLogic =
-                    (Ringtone ringtone, Boolean stopped) -> {
+            BiConsumer<Pair<Uri, Ringtone>, Boolean> afterRingtoneLogic =
+                    (Pair<Uri, Ringtone> ringtoneInfo, Boolean stopped) -> {
                 try {
+                    Uri ringtoneUri = null;
+                    Ringtone ringtone = null;
+                    if (ringtoneInfo != null) {
+                        ringtoneUri = ringtoneInfo.first;
+                        ringtone = ringtoneInfo.second;
+                    } else {
+                        Log.w(this, "The ringtone could not be loaded.");
+                    }
+
                     if (stopped.booleanValue() || !vibratorReserved) {
                         // don't start vibration if the ringing is already abandoned, or the
                         // vibrator wasn't reserved. This still triggers the mBlockOnRingingFuture.
@@ -692,7 +702,7 @@ public class Ringer {
                         if (DEBUG_RINGER) {
                             Log.d(this, "Using ringtone defined vibration effect.");
                         }
-                        vibrationEffect = getVibrationEffectForRingtone(ringtone);
+                        vibrationEffect = getVibrationEffectForRingtone(ringtoneUri);
                     } else {
                         vibrationEffect = mDefaultVibrationEffect;
                     }
@@ -715,10 +725,10 @@ public class Ringer {
                 mAudioManager.setParameters("CRS_volume=" +
                         mAudioManager.getStreamVolume(AudioManager.STREAM_RING));
                 afterRingtoneLogic.accept(/* ringtone= */ null, /* stopped= */ false);
-            } else if (ringtoneSupplier != null) {
-                mRingtonePlayer.play(ringtoneSupplier, afterRingtoneLogic, isHfpDeviceAttached);
+            } else if (ringtoneInfoSupplier != null) {
+                mRingtonePlayer.play(ringtoneInfoSupplier, afterRingtoneLogic, isHfpDeviceAttached);
             } else {
-                afterRingtoneLogic.accept(/* ringtone= */ null, /* stopped= */ false);
+                afterRingtoneLogic.accept(/* ringtoneUri, ringtone = */ null, /* stopped= */ false);
             }
 
             // shouldAcquireAudioFocus is meant to be true, but that check is deferred to here
@@ -780,8 +790,7 @@ public class Ringer {
         }
     }
 
-    private VibrationEffect getVibrationEffectForRingtone(@NonNull Ringtone ringtone) {
-        Uri ringtoneUri = ringtone.getUri();
+    private VibrationEffect getVibrationEffectForRingtone(Uri ringtoneUri) {
         if (ringtoneUri == null) {
             return mDefaultVibrationEffect;
         }

@@ -79,7 +79,7 @@ import android.os.Trace;
 import android.os.UserHandle;
 import android.os.UserManager;
 import android.provider.BlockedNumberContract;
-import android.provider.BlockedNumberContract.SystemContract;
+import android.provider.BlockedNumberContract.BlockedNumbers;
 import android.provider.CallLog.Calls;
 import android.provider.Settings;
 import android.sysprop.TelephonyProperties;
@@ -118,6 +118,7 @@ import android.widget.Button;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.app.IntentForwarderActivity;
 import com.android.internal.util.IndentingPrintWriter;
+import com.android.server.telecom.bluetooth.BluetoothDeviceManager;
 import com.android.server.telecom.bluetooth.BluetoothRouteManager;
 import com.android.server.telecom.bluetooth.BluetoothStateReceiver;
 import com.android.server.telecom.callfiltering.BlockCheckerAdapter;
@@ -164,6 +165,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -227,6 +229,29 @@ public class CallsManager extends Call.ListenerBase
     /** Interface used to define the action which is executed delay under some condition. */
     interface PendingAction {
         void performAction();
+    }
+
+    /**
+     * @hide
+     */
+    public interface Response<IN, OUT> {
+
+        /**
+         * Provide a set of results.
+         *
+         * @param request The original request.
+         * @param result The results.
+         */
+        void onResult(IN request, OUT... result);
+
+        /**
+         * Indicates the inability to provide results.
+         *
+         * @param request The original request.
+         * @param code An integer code indicating the reason for failure.
+         * @param msg A message explaining the reason for failure.
+         */
+        void onError(IN request, int code, String msg);
     }
 
     private static final String TAG = "CallsManager";
@@ -554,7 +579,7 @@ public class CallsManager extends Call.ListenerBase
         public void onReceive(Context context, Intent intent) {
             String action = intent.getAction();
             if (CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED.equals(action)
-                    || SystemContract.ACTION_BLOCK_SUPPRESSION_STATE_CHANGED.equals(action)) {
+                    || BlockedNumbers.ACTION_BLOCK_SUPPRESSION_STATE_CHANGED.equals(action)) {
                 updateEmergencyCallNotificationAsync(context);
             } else if (ACTION_MSIM_VOICE_CAPABILITY_CHANGED.equals(action)) {
                 updateCanAddCall();
@@ -607,6 +632,7 @@ public class CallsManager extends Call.ListenerBase
             EmergencyCallDiagnosticLogger emergencyCallDiagnosticLogger,
             CallAudioCommunicationDeviceTracker communicationDeviceTracker,
             CallStreamingNotification callStreamingNotification,
+            BluetoothDeviceManager bluetoothDeviceManager,
             FeatureFlags featureFlags,
             IncomingCallFilterGraphProvider incomingCallFilterGraphProvider) {
 
@@ -632,6 +658,9 @@ public class CallsManager extends Call.ListenerBase
         mDtmfLocalTonePlayer =
                 new DtmfLocalTonePlayer(new DtmfLocalTonePlayer.ToneGeneratorProxy());
         CallAudioRouteAdapter callAudioRouteAdapter;
+        // TODO: add another flag check when
+        // bluetoothDeviceManager.getBluetoothHeadset().isScoManagedByAudio()
+        // available and return true
         if (!featureFlags.useRefactoredAudioRouteSwitching()) {
             callAudioRouteAdapter = callAudioRouteStateMachineFactory.create(
                     context,
@@ -646,9 +675,11 @@ public class CallsManager extends Call.ListenerBase
                     featureFlags
             );
         } else {
-            callAudioRouteAdapter = new CallAudioRouteController();
+            callAudioRouteAdapter = new CallAudioRouteController(context, this, audioServiceFactory,
+                    new AudioRoute.Factory(), wiredHeadsetManager, mBluetoothRouteManager);
         }
         callAudioRouteAdapter.initialize();
+        bluetoothStateReceiver.setCallAudioRouteAdapter(callAudioRouteAdapter);
 
         CallAudioRoutePeripheralAdapter callAudioRoutePeripheralAdapter =
                 new CallAudioRoutePeripheralAdapter(
@@ -698,7 +729,8 @@ public class CallsManager extends Call.ListenerBase
         mCallLogManager = new CallLogManager(context, phoneAccountRegistrar, mMissedCallNotifier,
                 mAnomalyReporter, featureFlags);
         mConnectionServiceRepository =
-                new ConnectionServiceRepository(mPhoneAccountRegistrar, mContext, mLock, this);
+                new ConnectionServiceRepository(mPhoneAccountRegistrar, mContext, mLock, this,
+                        featureFlags);
         mInCallWakeLockController = inCallWakeLockControllerFactory.create(context, this);
         mClockProxy = clockProxy;
         mToastFactory = toastFactory;
@@ -749,7 +781,7 @@ public class CallsManager extends Call.ListenerBase
         IntentFilter intentFilter = new IntentFilter(
                 CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
         intentFilter.setPriority(IntentFilter.SYSTEM_HIGH_PRIORITY);
-        intentFilter.addAction(SystemContract.ACTION_BLOCK_SUPPRESSION_STATE_CHANGED);
+        intentFilter.addAction(BlockedNumbers.ACTION_BLOCK_SUPPRESSION_STATE_CHANGED);
         intentFilter.addAction(ACTION_MSIM_VOICE_CAPABILITY_CHANGED);
         context.registerReceiver(mReceiver, intentFilter, Context.RECEIVER_EXPORTED);
         mGraphHandlerThreads = new LinkedList<>();
@@ -888,11 +920,11 @@ public class CallsManager extends Call.ListenerBase
     }
 
     private IncomingCallFilterGraph setUpCallFilterGraph(Call incomingCall) {
+        TelecomManager telecomManager = mContext.getSystemService(TelecomManager.class);
         incomingCall.setIsUsingCallFiltering(true);
         String carrierPackageName = getCarrierPackageName();
         UserHandle userHandle = incomingCall.getAssociatedUser();
-        String defaultDialerPackageName = TelecomManager.from(mContext).
-                getDefaultDialerPackage(userHandle);
+        String defaultDialerPackageName = telecomManager.getDefaultDialerPackage(userHandle);
         String userChosenPackageName = getRoleManagerAdapter().
                 getDefaultCallScreeningApp(userHandle);
         AppLabelProxy appLabelProxy = packageName -> AppLabelProxy.Util.getAppLabel(
@@ -964,8 +996,10 @@ public class CallsManager extends Call.ListenerBase
 
         if (incomingCall.getState() != CallState.DISCONNECTED &&
                 incomingCall.getState() != CallState.DISCONNECTING) {
-            setCallState(incomingCall, CallState.RINGING,
-                    result.shouldAllowCall ? "successful incoming call" : "blocking call");
+            if (!mFeatureFlags.separatelyBindToBtIncallService()) {
+                setCallState(incomingCall, CallState.RINGING,
+                        result.shouldAllowCall ? "successful incoming call" : "blocking call");
+            }
         } else {
             Log.i(this, "onCallFilteringCompleted: call already disconnected.");
             return;
@@ -1010,6 +1044,10 @@ public class CallsManager extends Call.ListenerBase
         }
 
         if (result.shouldAllowCall) {
+            if (mFeatureFlags.separatelyBindToBtIncallService()) {
+                incomingCall.setBtIcsFuture(mInCallController.bindToBTService(incomingCall));
+                setCallState(incomingCall, CallState.RINGING, "successful incoming call");
+            }
             incomingCall.setPostCallPackageName(
                     getRoleManagerAdapter().getDefaultCallScreeningApp(
                             incomingCall.getAssociatedUser()
@@ -1024,7 +1062,6 @@ public class CallsManager extends Call.ListenerBase
                             "Exceeds maximum number of ringing calls.");
                     incomingCall.setMissedReason(AUTO_MISSED_MAXIMUM_RINGING);
                     autoMissCallAndLog(incomingCall, result);
-                    return;
                 }
             } else if (hasMaximumManagedDialingCalls(incomingCall) &&
                     arePhoneAccountsEqual(getDialingOrPullingCall().getTargetPhoneAccount(),
@@ -1036,7 +1073,6 @@ public class CallsManager extends Call.ListenerBase
                             "dialing calls.");
                     incomingCall.setMissedReason(AUTO_MISSED_MAXIMUM_DIALING);
                     autoMissCallAndLog(incomingCall, result);
-                    return;
                 }
             } else if (!isIncomingVideoCallAllowed(incomingCall)) {
                 Log.i(this, "onCallFilteringCompleted: MT Video Call rejecting.");
@@ -1058,6 +1094,9 @@ public class CallsManager extends Call.ListenerBase
         } else {
             if (result.shouldReject) {
                 Log.i(this, "onCallFilteringCompleted: blocked call, rejecting.");
+                if (mFeatureFlags.separatelyBindToBtIncallService()) {
+                    setCallState(incomingCall, CallState.RINGING, "blocking call");
+                }
                 incomingCall.reject(false, null);
             }
             if (result.shouldAddToCallLog) {
@@ -2997,7 +3036,7 @@ public class CallsManager extends Call.ListenerBase
 
         if (call.isEmergencyCall()) {
             Executors.defaultThreadFactory().newThread(() ->
-                    BlockedNumberContract.SystemContract.notifyEmergencyContact(mContext))
+                    BlockedNumberContract.BlockedNumbers.notifyEmergencyContact(mContext))
                     .start();
         }
 
@@ -3081,10 +3120,6 @@ public class CallsManager extends Call.ListenerBase
                 Log.d(this, "answerCall: Incoming call = %s Ongoing call %s", call, activeCall);
             }
             // Hold or disconnect the active call and request call focus for the incoming call.
-            Bundle bundle = new Bundle();
-            bundle.putLong(TelecomManager.EXTRA_CALL_ANSWERED_TIME_MILLIS,
-                     mClockProxy.currentTimeMillis());
-            call.putConnectionServiceExtras(bundle);
             holdActiveCallForNewCall(call);
             mConnectionSvrFocusMgr.requestFocus(
                     call,
@@ -4892,18 +4927,35 @@ public class CallsManager extends Call.ListenerBase
     }
 
     /**
-     * Determines if there are any ongoing self managed calls for the given package/user.
+     * Determines if there are any ongoing self-managed calls for the given package/user.
      * @param packageName The package name to check.
-     * @param userHandle The userhandle to check.
+     * @param userHandle The {@link UserHandle} to check.
      * @return {@code true} if the app has ongoing calls, or {@code false} otherwise.
      */
     public boolean isInSelfManagedCall(String packageName, UserHandle userHandle) {
+        return isInSelfManagedCallCrossUsers(packageName, userHandle, false);
+    }
+
+    /**
+     * Determines if there are any ongoing self-managed calls for the given package/user (unless
+     * hasCrossUsers has been enabled).
+     * @param packageName The package name to check.
+     * @param userHandle The {@link UserHandle} to check.
+     * @param hasCrossUserAccess indicates if calls across all users should be returned.
+     * @return {@code true} if the app has ongoing calls, or {@code false} otherwise.
+     */
+    public boolean isInSelfManagedCallCrossUsers(
+            String packageName, UserHandle userHandle, boolean hasCrossUserAccess) {
         return mSelfManagedCallsBeingSetup.stream().anyMatch(c -> c.isSelfManaged()
                 && c.getTargetPhoneAccount().getComponentName().getPackageName().equals(packageName)
-                && c.getTargetPhoneAccount().getUserHandle().equals(userHandle)) ||
-                mCalls.stream().anyMatch(c -> c.isSelfManaged()
+                && (!hasCrossUserAccess
+                        ? c.getTargetPhoneAccount().getUserHandle().equals(userHandle)
+                        : true))
+                || mCalls.stream().anyMatch(c -> c.isSelfManaged()
                 && c.getTargetPhoneAccount().getComponentName().getPackageName().equals(packageName)
-                && c.getTargetPhoneAccount().getUserHandle().equals(userHandle));
+                && (!hasCrossUserAccess
+                        ? c.getTargetPhoneAccount().getUserHandle().equals(userHandle)
+                        : true));
     }
 
     @VisibleForTesting
@@ -6126,8 +6178,7 @@ public class CallsManager extends Call.ListenerBase
             return;
         }
         ConnectionServiceWrapper service = mConnectionServiceRepository.getService(
-                phoneAccountHandle.getComponentName(), phoneAccountHandle.getUserHandle(),
-                mFeatureFlags);
+                phoneAccountHandle.getComponentName(), phoneAccountHandle.getUserHandle());
         if (service == null) {
             Log.i(this, "Found no connection service.");
             return;
@@ -6152,8 +6203,7 @@ public class CallsManager extends Call.ListenerBase
             return;
         }
         ConnectionServiceWrapper service = mConnectionServiceRepository.getService(
-                phoneAccountHandle.getComponentName(), phoneAccountHandle.getUserHandle(),
-                mFeatureFlags);
+                phoneAccountHandle.getComponentName(), phoneAccountHandle.getUserHandle());
         if (service == null) {
             Log.i(this, "Found no connection service.");
             return;
@@ -6772,9 +6822,14 @@ public class CallsManager extends Call.ListenerBase
      * @return {@code true} if call is visible to the calling user
      */
     boolean isCallVisibleForUser(Call call, UserHandle userHandle) {
-        return call.getAssociatedUser().equals(userHandle)
-                || call.getPhoneAccountFromHandle()
-                .hasCapabilities(PhoneAccount.CAPABILITY_MULTI_USER);
+        if (call == null) {
+            return false;
+        }
+        return (call.getAssociatedUser() != null &&
+                call.getAssociatedUser().equals(userHandle))
+                || (call.getPhoneAccountFromHandle() != null &&
+                call.getPhoneAccountFromHandle()
+                .hasCapabilities(PhoneAccount.CAPABILITY_MULTI_USER));
     }
 
     /**
