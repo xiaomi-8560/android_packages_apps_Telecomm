@@ -221,6 +221,8 @@ public class TelecomSystemTest extends TelecomTestCase{
     CallAudioCommunicationDeviceTracker mCommunicationDeviceTracker;
     @Mock
     FeatureFlags mFeatureFlags;
+    @Mock
+    com.android.internal.telephony.flags.FeatureFlags mTelephonyFlags;
 
     final ComponentName mInCallServiceComponentNameX =
             new ComponentName(
@@ -581,7 +583,8 @@ public class TelecomSystemTest extends TelecomTestCase{
                 Runnable::run,
                 Runnable::run,
                 mBlockedNumbersAdapter,
-                mFeatureFlags);
+                mFeatureFlags,
+                mTelephonyFlags);
 
         mComponentContextFixture.setTelecomManager(new TelecomManager(
                 mComponentContextFixture.getTestDouble(),
@@ -800,7 +803,7 @@ public class TelecomSystemTest extends TelecomTestCase{
 
         final UserHandle userHandle = initiatingUser;
         Context localAppContext = mComponentContextFixture.getTestDouble().getApplicationContext();
-        new UserCallIntentProcessor(localAppContext, userHandle).processIntent(
+        new UserCallIntentProcessor(localAppContext, userHandle, mFeatureFlags).processIntent(
                 actionCallIntent, null, false, true /* hasCallAppOp*/, false /* isLocal */);
         // Wait for handler to start CallerInfo lookup.
         waitForHandlerAction(new Handler(Looper.getMainLooper()), TEST_TIMEOUT);

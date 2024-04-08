@@ -29,7 +29,6 @@ import android.net.Uri;
 import android.os.BugreportManager;
 import android.os.DropBoxManager;
 import android.os.UserHandle;
-import android.os.UserManager;
 import android.telecom.Log;
 import android.telecom.PhoneAccountHandle;
 import android.telephony.AnomalyReporter;
@@ -45,9 +44,7 @@ import com.android.server.telecom.bluetooth.BluetoothDeviceManager;
 import com.android.server.telecom.bluetooth.BluetoothRouteManager;
 import com.android.server.telecom.bluetooth.BluetoothStateReceiver;
 import com.android.server.telecom.callfiltering.BlockedNumbersAdapter;
-import com.android.server.telecom.callfiltering.CallFilterResultCallback;
 import com.android.server.telecom.callfiltering.IncomingCallFilterGraph;
-import com.android.server.telecom.callfiltering.IncomingCallFilterGraphProvider;
 import com.android.server.telecom.components.UserCallIntentProcessor;
 import com.android.server.telecom.components.UserCallIntentProcessorFactory;
 import com.android.server.telecom.flags.FeatureFlags;
@@ -230,7 +227,8 @@ public class TelecomSystem {
             Executor asyncTaskExecutor,
             Executor asyncCallAudioTaskExecutor,
             BlockedNumbersAdapter blockedNumbersAdapter,
-            FeatureFlags featureFlags) {
+            FeatureFlags featureFlags,
+            com.android.internal.telephony.flags.FeatureFlags telephonyFlags) {
         mContext = context.getApplicationContext();
         mFeatureFlags = featureFlags;
         LogUtils.initLogging(mContext);
@@ -247,7 +245,7 @@ public class TelecomSystem {
         try {
             mPhoneAccountRegistrar = new PhoneAccountRegistrar(mContext, mLock, defaultDialerCache,
                     packageName -> AppLabelProxy.Util.getAppLabel(
-                            mContext.getPackageManager(), packageName), null);
+                            mContext.getPackageManager(), packageName), null, mFeatureFlags);
 
             mContactsAsyncHelper = contactsAsyncHelperFactory.create(
                     new ContactsAsyncHelper.ContentResolverAdapter() {
@@ -306,7 +304,7 @@ public class TelecomSystem {
                 @Override
                 public CallEndpointController create(Context context, SyncRoot lock,
                         CallsManager callsManager) {
-                    return new CallEndpointController(context, callsManager);
+                    return new CallEndpointController(context, callsManager, featureFlags);
                 }
             };
 
@@ -427,6 +425,7 @@ public class TelecomSystem {
                     callStreamingNotification,
                     bluetoothDeviceManager,
                     featureFlags,
+                    telephonyFlags,
                     IncomingCallFilterGraph::new);
 
             mIncomingCallNotifier = incomingCallNotifier;
@@ -481,7 +480,6 @@ public class TelecomSystem {
                     Manifest.permission.CONTROL_INCALL_EXPERIENCE, null);
 
             // There is no USER_SWITCHED broadcast for user 0, handle it here explicitly.
-            final UserManager userManager = UserManager.get(mContext);
             mTelecomServiceImpl = new TelecomServiceImpl(
                     mContext, mCallsManager, mPhoneAccountRegistrar,
                     new CallIntentProcessor.AdapterImpl(defaultDialerCache),
@@ -489,7 +487,7 @@ public class TelecomSystem {
                         @Override
                         public UserCallIntentProcessor create(Context context,
                                 UserHandle userHandle) {
-                            return new UserCallIntentProcessor(context, userHandle);
+                            return new UserCallIntentProcessor(context, userHandle, featureFlags);
                         }
                     },
                     defaultDialerCache,
@@ -531,5 +529,9 @@ public class TelecomSystem {
 
     public boolean isBootComplete() {
         return mIsBootComplete;
+    }
+
+    public FeatureFlags getFeatureFlags() {
+        return mFeatureFlags;
     }
 }
