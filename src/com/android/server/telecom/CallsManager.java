@@ -505,8 +505,12 @@ public class CallsManager extends Call.ListenerBase
                 @Override
                 public void releaseConnectionService(
                         ConnectionServiceFocusManager.ConnectionServiceFocus connectionService) {
+                    if (connectionService == null) {
+                        Log.i(this, "releaseConnectionService: connectionService is null");
+                        return;
+                    }
                     mCalls.stream()
-                            .filter(c -> c.getConnectionServiceWrapper().equals(connectionService))
+                            .filter(c -> connectionService.equals(c.getConnectionServiceWrapper()))
                             .forEach(c -> c.disconnect("release " +
                                     connectionService.getComponentName().getPackageName()));
                 }
@@ -683,6 +687,7 @@ public class CallsManager extends Call.ListenerBase
         }
         callAudioRouteAdapter.initialize();
         bluetoothStateReceiver.setCallAudioRouteAdapter(callAudioRouteAdapter);
+        bluetoothDeviceManager.setCallAudioRouteAdapter(callAudioRouteAdapter);
 
         CallAudioRoutePeripheralAdapter callAudioRoutePeripheralAdapter =
                 new CallAudioRoutePeripheralAdapter(
@@ -1059,7 +1064,8 @@ public class CallsManager extends Call.ListenerBase
 
         if (result.shouldAllowCall) {
             if (mFeatureFlags.separatelyBindToBtIncallService()) {
-                incomingCall.setBtIcsFuture(mInCallController.bindToBTService(incomingCall));
+                mInCallController.bindToBTService(incomingCall, null);
+                incomingCall.setBtIcsFuture(mInCallController.getBtBindingFuture(incomingCall));
                 setCallState(incomingCall, CallState.RINGING, "successful incoming call");
             }
             incomingCall.setPostCallPackageName(
@@ -2697,7 +2703,10 @@ public class CallsManager extends Call.ListenerBase
                 // The target phone account is valid and was found.
                 return CompletableFuture.completedFuture(Arrays.asList(targetPhoneAccountHandle));
             }
-            if (getTelephonyManager().isDsdsTransitionSupported()) {
+            if (getTelephonyManager().isDsdsTransitionSupported() &&
+                    TelephonyUtil.isPstnComponentName(
+                    targetPhoneAccountHandle.getComponentName())) {
+                Log.v(this, "findOutgoingCallPhoneAccount: force empty list for dsds transition");
                 accounts = Collections.emptyList();
             }
         }
@@ -4023,8 +4032,7 @@ public class CallsManager extends Call.ListenerBase
                     return true;
                 }
                 return false;
-            } else if (supportsHold(activeCall)
-                    && areFromSameSource(activeCall, call)) {
+            } else if (sameSourceHoldCase(activeCall, call)) {
 
                 // Handle the case where the active call and the new call are from the same CS or
                 // connection manager, and the currently active call supports hold but cannot
@@ -4073,43 +4081,85 @@ public class CallsManager extends Call.ListenerBase
         return false;
     }
 
-    // attempt to hold the requested call and complete the callback on the result
+    /**
+     * attempt to hold or swap the current active call in favor of a new call request. The
+     * OutcomeReceiver will return onResult if the current active call is held or disconnected.
+     * Otherwise, the OutcomeReceiver will fail.
+     */
     public void transactionHoldPotentialActiveCallForNewCall(Call newCall,
-            OutcomeReceiver<Boolean, CallException> callback) {
+            boolean isCallControlRequest, OutcomeReceiver<Boolean, CallException> callback) {
+        String mTag = "transactionHoldPotentialActiveCallForNewCall: ";
         Call activeCall = (Call) mConnectionSvrFocusMgr.getCurrentFocusCall();
-        Log.i(this, "transactionHoldPotentialActiveCallForNewCall: "
-                + "newCall=[%s], activeCall=[%s]", newCall, activeCall);
+        Log.i(this, mTag + "newCall=[%s], activeCall=[%s]", newCall, activeCall);
 
-        // early exit if there is no need to hold an active call
         if (activeCall == null || activeCall == newCall) {
-            Log.i(this, "transactionHoldPotentialActiveCallForNewCall:"
-                    + " no need to hold activeCall");
+            Log.i(this, mTag + "no need to hold activeCall");
             callback.onResult(true);
             return;
         }
 
-        // before attempting CallsManager#holdActiveCallForNewCall(Call), check if it'll fail early
-        if (!canHold(activeCall) &&
-                !(supportsHold(activeCall) && areFromSameSource(activeCall, newCall))) {
-            Log.i(this, "transactionHoldPotentialActiveCallForNewCall: "
-                    + "conditions show the call cannot be held.");
-            callback.onError(new CallException("call does not support hold",
-                    CallException.CODE_CANNOT_HOLD_CURRENT_ACTIVE_CALL));
-            return;
-        }
+        if (mFeatureFlags.transactionalHoldDisconnectsUnholdable()) {
+            // prevent bad actors from disconnecting the activeCall. Instead, clients will need to
+            // notify the user that they need to disconnect the ongoing call before making the
+            // new call ACTIVE.
+            if (isCallControlRequest && !canHoldOrSwapActiveCall(activeCall, newCall)) {
+                Log.i(this, mTag + "CallControlRequest exit");
+                callback.onError(new CallException("activeCall is NOT holdable or swappable, please"
+                        + " request the user disconnect the call.",
+                        CallException.CODE_CANNOT_HOLD_CURRENT_ACTIVE_CALL));
+                return;
+            }
 
-        // attempt to hold the active call
-        if (!holdActiveCallForNewCall(newCall)) {
-            Log.i(this, "transactionHoldPotentialActiveCallForNewCall: "
-                    + "attempted to hold call but failed.");
-            callback.onError(new CallException("cannot hold active call failed",
-                    CallException.CODE_CANNOT_HOLD_CURRENT_ACTIVE_CALL));
-            return;
-        }
+            if (holdActiveCallForNewCall(newCall)) {
+                // Transactional clients do not call setHold but the request was sent to set the
+                // call as inactive and it has already been acked by this point.
+                markCallAsOnHold(activeCall);
+                callback.onResult(true);
+            } else {
+                // It's possible that holdActiveCallForNewCall disconnected the activeCall.
+                // Therefore, the activeCalls state should be checked before failing.
+                if (activeCall.isLocallyDisconnecting()) {
+                    callback.onResult(true);
+                } else {
+                    Log.i(this, mTag + "active call could not be held or disconnected");
+                    callback.onError(
+                            new CallException("activeCall could not be held or disconnected",
+                                    CallException.CODE_CANNOT_HOLD_CURRENT_ACTIVE_CALL));
+                }
+            }
+        } else {
+            // before attempting CallsManager#holdActiveCallForNewCall(Call), check if it'll fail
+            // early
+            if (!canHold(activeCall) &&
+                    !(supportsHold(activeCall) && areFromSameSource(activeCall, newCall))) {
+                Log.i(this, "transactionHoldPotentialActiveCallForNewCall: "
+                        + "conditions show the call cannot be held.");
+                callback.onError(new CallException("call does not support hold",
+                        CallException.CODE_CANNOT_HOLD_CURRENT_ACTIVE_CALL));
+                return;
+            }
 
-        // officially mark the activeCall as held
-        markCallAsOnHold(activeCall);
-        callback.onResult(true);
+            // attempt to hold the active call
+            if (!holdActiveCallForNewCall(newCall)) {
+                Log.i(this, "transactionHoldPotentialActiveCallForNewCall: "
+                        + "attempted to hold call but failed.");
+                callback.onError(new CallException("cannot hold active call failed",
+                        CallException.CODE_CANNOT_HOLD_CURRENT_ACTIVE_CALL));
+                return;
+            }
+
+            // officially mark the activeCall as held
+            markCallAsOnHold(activeCall);
+            callback.onResult(true);
+        }
+    }
+
+    private boolean canHoldOrSwapActiveCall(Call activeCall, Call newCall) {
+        return canHold(activeCall) || sameSourceHoldCase(activeCall, newCall);
+    }
+
+    private boolean sameSourceHoldCase(Call activeCall, Call call) {
+        return supportsHold(activeCall) && areFromSameSource(activeCall, call);
     }
 
     @VisibleForTesting
@@ -4203,20 +4253,21 @@ public class CallsManager extends Call.ListenerBase
             Log.addEvent(call, LogUtils.Events.SET_DISCONNECTED_ORIG, disconnectCause);
 
             // Setup the future with a timeout so that the CDS is time boxed.
-            CompletableFuture<Boolean> future = call.initializeDisconnectFuture(
+            CompletableFuture<Boolean> future = call.initializeDiagnosticCompleteFuture(
                     mTimeoutsAdapter.getCallDiagnosticServiceTimeoutMillis(
                             mContext.getContentResolver()));
 
             // Post the disconnection updates to the future for completion once the CDS returns
             // with it's overridden disconnect message.
-            future.thenRunAsync(() -> {
+            CompletableFuture<Void> disconnectFuture = future.thenRunAsync(() -> {
                 call.setDisconnectCause(disconnectCause);
                 setCallState(call, CallState.DISCONNECTED, "disconnected set explicitly");
-            }, new LoggedHandlerExecutor(mHandler, "CM.mCAD", mLock))
-                    .exceptionally((throwable) -> {
-                        Log.e(TAG, throwable, "Error while executing disconnect future.");
-                        return null;
-                    });
+            }, new LoggedHandlerExecutor(mHandler, "CM.mCAD", mLock));
+            disconnectFuture.exceptionally((throwable) -> {
+                Log.e(TAG, throwable, "Error while executing disconnect future.");
+                return null;
+            });
+            call.setDisconnectFuture(disconnectFuture);
         } else {
             // No CallDiagnosticService, or it doesn't handle this call, so just do this
             // synchronously as always.
@@ -4245,16 +4296,7 @@ public class CallsManager extends Call.ListenerBase
     public void markCallAsRemoved(Call call) {
         if (call.isDisconnectHandledViaFuture()) {
             Log.i(this, "markCallAsRemoved; callid=%s, postingToFuture.", call.getId());
-            // A future is being used due to a CallDiagnosticService handling the call.  We will
-            // chain the removal operation to the end of any outstanding disconnect work.
-            call.getDisconnectFuture().thenRunAsync(() -> {
-                performRemoval(call);
-            }, new LoggedHandlerExecutor(mHandler, "CM.mCAR", mLock))
-                    .exceptionally((throwable) -> {
-                        Log.e(TAG, throwable, "Error while executing disconnect future");
-                        return null;
-                    });
-
+            configureRemovalFuture(call);
         } else {
             Log.i(this, "markCallAsRemoved; callid=%s, immediate.", call.getId());
             performRemoval(call);
@@ -4262,8 +4304,52 @@ public class CallsManager extends Call.ListenerBase
     }
 
     /**
+     * Configure the removal as a dependent stage after the disconnect future completes, which could
+     * be cancelled as part of {@link Call#setState(int, String)} when need to retry dial on another
+     * ConnectionService.
+     * <p>
+     * We can not remove the call yet, we need to wait for the DisconnectCause to be processed and
+     * potentially re-written via the {@link android.telecom.CallDiagnosticService} first.
+     *
+     * @param call The call to configure the removal future for.
+     */
+    private void configureRemovalFuture(Call call) {
+        if (!mFeatureFlags.cancelRemovalOnEmergencyRedial()) {
+            call.getDiagnosticCompleteFuture().thenRunAsync(() -> performRemoval(call),
+                            new LoggedHandlerExecutor(mHandler, "CM.cRF-O", mLock))
+                    .exceptionally((throwable) -> {
+                        Log.e(TAG, throwable, "Error while executing disconnect future");
+                        return null;
+                    });
+        } else {
+            // A future is being used due to a CallDiagnosticService handling the call.  We will
+            // chain the removal operation to the end of any outstanding disconnect work.
+            CompletableFuture<Void> removalFuture;
+            if (call.getDisconnectFuture() == null) {
+                // Unexpected - can not get the disconnect future, attach to the diagnostic complete
+                // future in this case.
+                removalFuture = call.getDiagnosticCompleteFuture().thenRun(() ->
+                        Log.w(this, "configureRemovalFuture: remove called without disconnecting"
+                                + " first."));
+            } else {
+                removalFuture = call.getDisconnectFuture();
+            }
+            removalFuture = removalFuture.thenRunAsync(() -> performRemoval(call),
+                    new LoggedHandlerExecutor(mHandler, "CM.cRF-N", mLock));
+            removalFuture.exceptionally((throwable) -> {
+                Log.e(TAG, throwable, "Error while executing disconnect future");
+                return null;
+            });
+            // Cache the future to remove the call initiated by the ConnectionService in case we
+            // need to cancel it in favor of removing the call internally as part of creating a
+            // new connection (CreateConnectionProcessor#continueProcessingIfPossible)
+            call.setRemovalFuture(removalFuture);
+        }
+    }
+
+    /**
      * Work which is completed when a call is to be removed. Can either be be run synchronously or
-     * posted to a {@link Call#getDisconnectFuture()}.
+     * posted to a {@link Call#getDiagnosticCompleteFuture()}.
      * @param call The call.
      */
     private void performRemoval(Call call) {

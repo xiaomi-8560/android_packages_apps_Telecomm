@@ -367,7 +367,7 @@ public final class CallLogManager extends CallsManagerListenerBase {
         if (phoneAccount != null &&
                 phoneAccount.hasCapabilities(PhoneAccount.CAPABILITY_MULTI_USER)) {
             if (initiatingUser != null &&
-                    UserUtil.isManagedProfile(mContext, initiatingUser, mFeatureFlags)) {
+                    UserUtil.isProfile(mContext, initiatingUser, mFeatureFlags)) {
                 paramBuilder.setUserToBeInsertedTo(initiatingUser);
                 paramBuilder.setAddForAllUsers(false);
             } else {
@@ -459,8 +459,8 @@ public final class CallLogManager extends CallsManagerListenerBase {
         boolean okToLogEmergencyNumber = false;
         CarrierConfigManager configManager = (CarrierConfigManager) mContext.getSystemService(
                 Context.CARRIER_CONFIG_SERVICE);
-        PersistableBundle configBundle = configManager.getConfigForSubId(
-                mPhoneAccountRegistrar.getSubscriptionIdForPhoneAccount(accountHandle));
+        PersistableBundle configBundle = (configManager != null) ? configManager.getConfigForSubId(
+                mPhoneAccountRegistrar.getSubscriptionIdForPhoneAccount(accountHandle)) : null;
         if (configBundle != null) {
             okToLogEmergencyNumber = configBundle.getBoolean(
                     CarrierConfigManager.KEY_ALLOW_EMERGENCY_NUMBERS_IN_CALL_LOG_BOOL);
