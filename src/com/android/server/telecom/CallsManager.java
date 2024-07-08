@@ -3553,7 +3553,8 @@ public class CallsManager extends Call.ListenerBase
                 Log.d(TAG, "unholdCall isDsdaOrDsdsTransitionMode = " +
                         isDsdaOrDsdsTransitionMode());
                 if (canHold(activeCall)) {
-                    if (!isDsdaOrDsdsTransitionMode() || !areFromSameSource(activeCall, call)) {
+                    if (!isDsdaOrDsdsTransitionMode() || !areFromSameSource(activeCall, call)
+                            || isHfpCallPresent()) {
                         // Follow legacy behavior for non DSDA and different source/connection
                         // service use case
                         activeCall.hold("Swap to " + call.getId());
