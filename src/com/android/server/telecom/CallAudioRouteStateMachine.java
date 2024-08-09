@@ -1526,12 +1526,10 @@ public class CallAudioRouteStateMachine extends StateMachine implements CallAudi
             Log.startSession("CARSM.mSPCR");
             try {
                 if (AudioManager.ACTION_SPEAKERPHONE_STATE_CHANGED.equals(intent.getAction())) {
-                    if (mAudioManager != null) {
-                        if (mAudioManager.isSpeakerphoneOn()) {
-                            sendInternalMessage(SPEAKER_ON);
-                        } else {
-                            sendInternalMessage(SPEAKER_OFF);
-                        }
+                    if (isSpeakerPhoneOn()) {
+                        sendInternalMessage(SPEAKER_ON);
+                    } else {
+                        sendInternalMessage(SPEAKER_OFF);
                     }
                 } else {
                     Log.w(this, "Received non-speakerphone-change intent");
@@ -2129,9 +2127,9 @@ public class CallAudioRouteStateMachine extends StateMachine implements CallAudi
         boolean isSkipEarpiece = false;
         if (!isExplicitUserRequest) {
             synchronized (mLock) {
-                // Check video calls to skip earpiece since the baseline for video
-                // calls should be the speakerphone route
-                isSkipEarpiece = mCallsManager.hasVideoCall();
+                // Check video calls with speaker on to skip earpiece since the baseline
+                // for video calls should be the speakerphone route
+                isSkipEarpiece = mCallsManager.hasVideoCall() && isSpeakerPhoneOn();
             }
         }
         if ((mAvailableRoutes & ROUTE_BLUETOOTH) != 0
@@ -2206,9 +2204,15 @@ public class CallAudioRouteStateMachine extends StateMachine implements CallAudi
 
     private boolean isSpeakerPhoneOn() {
         if (mAudioManager == null) return false;
-        boolean isOn = mAudioManager.isSpeakerphoneOn();
-        Log.d(this, "isSpeakerPhoneOn: " + isOn);
-        return isOn;
+        AudioDeviceInfo info = mAudioManager.getCommunicationDevice();
+        if (info == null) return false;
+        int audioDeviceType = info.getType();
+        Log.d(this, "audioDeviceType: " + audioDeviceType);
+        if (audioDeviceType == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER) {
+            return true;
+        } else {
+            return false;
+        }
     }
 
 }
